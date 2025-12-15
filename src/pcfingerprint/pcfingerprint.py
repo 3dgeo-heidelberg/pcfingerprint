@@ -1,0 +1,179 @@
+import warnings
+import numpy as np
+import laspy
+from pcfingerprint.geometric_features import compute_point_density, compute_geom_feat
+from pcfingerprint.report import generate_report
+from pathlib import Path
+
+
+class PointCloud:
+    def __init__(self, 
+    coords=None,
+    gps_time=None,
+    return_number=None,
+    number_of_returns=None,
+    intensity=None):
+        self.coords = coords  # Nx3 array of point coordinates
+        self.source = None  # source file path
+        self.kd_tree = None  # KDTree for spatial queries
+        self.gps_time = gps_time  # float array
+        self.return_number = return_number  # int array
+        self.number_of_returns = number_of_returns  # int array
+        self.intensity = intensity  # int array
+        self.n_neighbours = None  # int array
+        self.point_density = None  # float array
+        self.point_density_radius = None  # radius used for point density
+        self.normals = None  # Nx3 array of normal vectors
+        self.normal_radius = None  # radius used for normal estimation
+        self.geometric_features = {}  # dict of feature name to float array
+        self.voxel_size = None  # size of voxels (float) 
+        self.voxel_indices = None  # Nx3 array of voxel indices (int)
+        self.is_outlier = None  # boolean array
+
+
+class PointCloudPair:
+    def __init__(self):
+        self.real_world = PointCloud()
+        # simulated is a list of PointClouds (minimum 1)
+        self.simulated = []
+        self.trajectory = None  # Optional trajectory data
+    
+    def drop_attributes(self):
+        # drop attributes that are not present in all point clouds
+        all_pcs = [self.real_world] + self.simulated
+        for attr in [
+            "gps_time",
+            "return_number",
+            "number_of_returns",
+            "intensity",
+        ]:
+            if any(getattr(pc, attr) is None for pc in all_pcs):
+                for pc in all_pcs:
+                    setattr(pc, attr, None)
+
+    def load_real_world(self, filepath: str):
+        self.real_world = read_las_file(filepath)
+        self.real_world.source = filepath
+        # if simulated point cloud is already loaded, drop non-overlapping attributes
+        if self.simulated != []:
+            self.drop_attributes()
+    
+    def load_simulated(self, filepaths: list[str] | str):
+        if isinstance(filepaths, str):
+            filepaths = [filepaths]
+        for filepath in filepaths:
+            self.simulated.append(read_las_file(filepath))
+            self.simulated[-1].source = filepath
+        # if real world point cloud is already loaded, drop non-overlapping attributes
+        if self.real_world.coords is not None:
+            self.drop_attributes()
+
+    def compute_point_density(self, radius: float = 2.0, nthreads: int = -1):
+        # Compute point density for all point clouds
+
+        # check if point density already computed
+        radius = np.round(radius, 3)
+        if self.real_world.point_density_radius == radius and self.real_world.point_density is not None:
+            return  # point density already computed
+        else:
+            compute_point_density(self.real_world, radius, nthreads)
+            for sim_pc in self.simulated:
+                compute_point_density(sim_pc, radius, nthreads)
+    
+    def compute_geometric_features(self, feature_names: list[str], radius: float = 2.0, nthreads: int = -1):
+        # Compute geometric features for all point clouds
+        
+        # check if features already computed
+        for f in feature_names:
+            radius = np.round(radius, 3)
+            f_with_radius = f + f"_r{radius}"
+            if f_with_radius in self.real_world.geometric_features:
+                # drop from feature_names
+                feature_names.remove(f)
+        if feature_names == []:
+            return  # all features already computed
+
+        compute_geom_feat(self.real_world, feature_names, radius, nthreads)
+        for sim_pc in self.simulated:
+            compute_geom_feat(sim_pc, feature_names, radius, nthreads)
+    
+    def plot_histogram(self, attribute: str, bins: int = 100, backend: str = "matplotlib"):
+        if backend == "matplotlib":
+            from pcfingerprint.vis_matplotlib import plot_histogram
+            fig = plot_histogram(self.real_world, self.simulated[0], attribute, bins)
+        elif backend == "plotly":
+            pass
+        else:
+            raise ValueError(f"Backend {backend} not supported.")
+        return fig
+    
+    def generate_report(self, sim_idx, output_path: str, attribute_list: list[str], summary_statistics: bool = True, visualizations: list[str] = ["histogram"], vis_backend: str = "matplotlib"):
+        # generate html report with histograms for each attribute in attribute_list
+        generate_report(self.real_world, self.simulated[sim_idx], output_path, attribute_list, summary_statistics=summary_statistics, visualizations=visualizations, vis_backend=vis_backend)
+
+
+
+def read_las_file(filepath):
+    """Create a PointCloud from a LAS/LAZ file
+
+    :param filepath:
+        The filename to read from. It is expected to be in LAS/LAZ format
+        and will be processed using laspy.
+    :type filepath: str
+    :return:
+        A PointCloud object containing the data from the file.
+    :rtype: PointCloud
+    """
+
+    # Read the lasfile using laspy
+    las = laspy.read(filepath)
+
+    # get gpstime, return number, number of returns, intensity if available
+    gps_time = las.gps_time if "gps_time" in las.point_format.dimension_names else None
+    return_number = las.return_number if "return_number" in las.point_format.dimension_names else None
+    number_of_returns = las.number_of_returns if "number_of_returns" in las.point_format.dimension_names else None
+    intensity = las.intensity if "intensity" in las.point_format.dimension_names else None
+
+    # create new PointCloud and assign attributes
+    pc = PointCloud()
+    pc.coords = np.vstack((las.x, las.y, las.z)).T
+    pc.gps_time = gps_time
+    pc.return_number = return_number
+    pc.number_of_returns = number_of_returns
+    pc.intensity = intensity
+
+    return pc
+
+
+def get_attribute_data(pc: PointCloud, attribute: str):
+    """
+    Function to get the data for a given attribute from a PointCloud.
+    The attribute may be 
+    - a direct attribute of the PointCloud object,
+    - one of the coordinate axes ("x", "y", "z"),
+    - a geometric feature (e.g. "linearity_0.2")
+    
+    :param pc: PointCloud object
+    :type pc: PointCloud
+    :param attribute: Name of the attribute to retreive
+    :type attribute: str
+    """
+    # make attribute lower case
+    attribute = attribute.lower()
+
+    # search for attribute in all possible locations
+    if hasattr(pc, attribute):
+        data = getattr(pc, attribute)
+    elif attribute in ["x", "y", "z"]:  # similarly for normals?
+        coord_index = {"x": 0, "y": 1, "z": 2}[attribute]
+        data = pc.coords[:, coord_index]
+    elif any(attribute in key for key in pc.geometric_features.keys()):
+        geom_feats = [key for key in pc.geometric_features.keys() if attribute in key]
+        if len(geom_feats) > 1:
+            warnings.warn(f"Multiple geometric features match attribute {attribute}: {geom_feats}. Using first match.\nConsider using full feature name with radius suffix.\n"
+                          f"Available geometric features: {list(pc.geometric_features.keys())}")
+        data = pc.geometric_features[geom_feats[0]]
+    else:
+        raise ValueError(f"Attribute {attribute} not found in point clouds.")
+
+    return data

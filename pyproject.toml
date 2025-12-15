@@ -1,0 +1,31 @@
+# This section provides general project metadata that is used across
+# a variety of build tools. Notably, the version specified here is the
+# single source of truth for pc-fingerprint's version
+
+[project]
+name = "pcfingerprint"
+version = "0.0.1"
+description = "pcfingerprint"
+readme = "README.md"
+maintainers = [
+    { name = "Hannah Weiser", email = "h.weiser@uni-heidelberg.de" },
+]
+requires-python = ">=3.9"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Intended Audience :: Science/Research",
+]
+dependencies = [
+    "numpy",
+    "jakteristics",
+    "laspy[lazrs]>=2.3.0",
+    "matplotlib",
+    "plotly",
+    "pandas",
+    "jinja2",
+    "numerous-html-report-generator"
+]

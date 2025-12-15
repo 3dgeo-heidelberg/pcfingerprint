@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <script>
+    function templateHeaderImage() {
+      document.getElementById('header-logo').src = "https://drupal-varnish-703-urz-webkit-webkit56-prd.apps.ocp-west.urz.uni-heidelberg.de/sites/default/files/2025-03/3Dgeo_heidelberg_white_bg.png";
+      document.getElementById('header-fixed-logo').src = "https://drupal-varnish-703-urz-webkit-webkit56-prd.apps.ocp-west.urz.uni-heidelberg.de/sites/default/files/2025-03/3Dgeo_heidelberg_white_bg.png";
+      window.scrollTo(0, 0);
+    };
+  </script>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+  <title>{{report_title}} | {{report_sub_title}} | {{report_sub_sub_title}}</title>
+
+  <link rel="shortcut icon" type="image/png"
+    href="https://drupal-varnish-703-urz-webkit-webkit56-prd.apps.ocp-west.urz.uni-heidelberg.de/sites/default/files/2025-01/3DGeo_globe_256_wborder_0.png" />
+
+  <link href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,500,700&display=swap" rel="stylesheet">
+  <!-- tooltip -->
+  <link rel="stylesheet" href="https://unpkg.com/balloon-css/balloon.min.css">
+  <link rel="stylesheet" type="text/css"
+    href="https://storage.googleapis.com/static.numerously.com/report/styling_20012104.css">
+  <link rel="stylesheet" type="text/css"
+    href="https://storage.googleapis.com/static.numerously.com/report/cop-graphics/cop-element-styles.css">
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+  <script>
+    // set up which elements can be edited
+    function onPageLoad() {
+      const isIframe = window.location !== window.parent.location;
+      if (isIframe) {
+        const allElements = document.querySelectorAll(
+          "div, th, td, text, h1, h2, h3, h4, h5, h6, h7, h8"
+        );
+        console.log("PAGELOAD");
+        allElements.forEach((element) => {
+          if (element.id.length > 0) element.className += " editable";
+        });
+      } else {
+        const allElements = document.querySelectorAll(".editable, .changed");
+        allElements.forEach((element) => {
+          let newClassName = element.className.replace(/editable/g, "");
+          newClassName = newClassName.replace(/changed/g, "");
+          element.className = newClassName;
+        });
+      }
+    }
+    window.addEventListener("load", onPageLoad);
+
+    // notify parent when scrolling
+    function onScroll(e) {
+      const top = window.pageYOffset || document.documentElement.scrollTop;
+      const scrollData = { top };
+      window.parent.postMessage({ type: "SCROLL", payload: scrollData }, "*");
+    }
+    window.addEventListener("scroll", onScroll);
+
+    // notify parent on click ediable element
+    function onClick(e) {
+      const id = e.target.id;
+      const innerHTML = e.target.innerHTML;
+      const boundingRect = e.target.getBoundingClientRect();
+      const left = boundingRect.left + (boundingRect.right - boundingRect.left) / 2;
+      const top = boundingRect.top + window.pageYOffset;
+      const data = {
+        id,
+        innerHTML,
+        original: innerHTML,
+        pos: { top, left },
+      };
+      window.parent.postMessage({ type: "CLICK", payload: data }, "*");
+    }
+    window.addEventListener("click", onClick);
+
+    // recieving info from parents
+    window.addEventListener("message", recieveMessageReducer);
+    function recieveMessageReducer(msg) {
+      const action = msg.data;
+      switch (action.type) {
+        case "UPDATE_CONTENT":
+          onRecieveChanges(action.payload);
+          break;
+        case "DOWNLOAD_REPORT":
+          downloadMe(action.payload);
+          break;
+        case "SCROLL":
+        case "CLICK":
+          break;
+        default:
+          console.log({ unknownAction: action });
+      }
+    }
+
+    function onRecieveChanges(changes) {
+      // list of changes
+      changes.forEach((change) => {
+        const element = document.getElementById(change.id);
+        if (element) {
+          element.innerHTML = change.innerHTML;
+          if (change.innerHTML !== change.original) element.className += " changed";
+          else element.className = element.className.replace("changed", "");
+        }
+      });
+    }
+
+    function downloadMe(name) {
+      const content = document.documentElement.outerHTML;
+      const dataURI = "data:text/plain;charset=UTF-8," + encodeURIComponent(content);
+      let linkElement = document.createElement("a");
+      linkElement.setAttribute("href", dataURI);
+      linkElement.setAttribute("download", `${name}.html`);
+      linkElement.click();
+    }
+
+  </script>
+</head>
+
+<body>
+  <div class="fixed-header" id="fixed-header">
+    <div class="fixed-header-container">
+      <div class="fixed-header-container-left">
+        <h2><b>{{report_type_title}}</b></h2>
+        <h2><b>{{report_title}}</b>, {{report_sub_title}}, {{report_sub_sub_title}}<h2>
+      </div>
+      <div class="fixed-header-container-right-num">
+        <img id="header-fixed-logo" class="fixed-header-logo">
+      </div>
+    </div>
+  </div>
+  <div class="report">
+    <div>
+      <a id="header-logo-link" href="https://www.uni-heidelberg.de/3dgeo"><img id="header-logo" class="header-logo-num topLogo"></a>
+      <h1 id="header-report">{{report_header}}</h1>
+      <div class="header">
+        <h1 id="header-title">{{report_title}}</h1>
+        <h2 id="header-system">{{report_sub_title}}</h2>
+        <h4 id="header-subtitle">{{report_sub_sub_title}}</h4>
+        <h4 id="header-sign">{{report_date}}</h4>
+      </div>
+    </div>
+
+    {{report_content}}
+
+    <div class='disclaimer'>
+      <h2>{{footer_title}}</h2>
+      <h5>{{footer_content}}</h5>
+    </div>
+  </div>
+
+  <script>
+    templateHeaderImage();
+  </script>
+
+  <script>
+    $('head').append('<link rel="stylesheet" type="text/css" href="https://storage.googleapis.com/static.numerously.com/report/styling-graph_20012101.css">');
+    setTimeout(function () {
+      window.dispatchEvent(new Event('resize'));
+    }, 1000);
+  </script>
+
+  <script>
+    window.onscroll = function () { scrollFunction() };
+    function scrollFunction() {
+      if (document.body.scrollTop > 800 || document.documentElement.scrollTop > 800) {
+        document.getElementById("fixed-header").style.top = "0";
+      } else {
+        document.getElementById("fixed-header").style.top = "-65px";
+      }
+    }
+  </script>
+
+</body>
+</html>
