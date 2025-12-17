@@ -107,9 +107,14 @@ class PointCloudPair:
             raise ValueError(f"Backend {backend} not supported.")
         return fig
     
-    def generate_report(self, sim_idx, output_path: str, attribute_list: list[str], summary_statistics: bool = True, visualizations: list[str] = ["histogram"], vis_backend: str = "matplotlib"):
+    def generate_report(self, output_path: str, attribute_list: list[str], summary_statistics: bool = True, visualizations: list[str] = ["histogram"], vis_backend: str = "matplotlib"):
         # generate html report with histograms for each attribute in attribute_list
-        generate_report(self.real_world, self.simulated[sim_idx], output_path, attribute_list, summary_statistics=summary_statistics, visualizations=visualizations, vis_backend=vis_backend)
+        if len(self.simulated) > 5:
+            warnings.warn("More than 5 simulated point clouds provided. Report will only consider the first five.")
+            simulated = self.simulated[:5]
+        else:
+            simulated = self.simulated
+        generate_report(self.real_world, simulated, output_path, attribute_list, summary_statistics=summary_statistics, visualizations=visualizations, vis_backend=vis_backend)
 
 
 
