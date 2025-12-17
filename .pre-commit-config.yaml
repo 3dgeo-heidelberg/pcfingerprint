@@ -1,0 +1,38 @@
+repos:
+  # Make sure that Jupyter notebooks under version control
+  # have their outputs stripped before committing
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.2
+    hooks:
+      - id: nbstripout
+        files: ".ipynb"
+
+  # Run Black - the uncompromising Python code formatter
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 25.12.0
+    hooks:
+      - id: black-jupyter
+
+  # Add some general purpose useful hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # Make sure that contained YAML files are well-formed
+      - id: check-yaml
+      # Trim trailing whitespace of all sorts
+      - id: trailing-whitespace
+      # Sort lines in requirements files
+      - id: requirements-txt-fixer
+      # Apply a file size limit of 500kB
+      - id: check-added-large-files
+      # Simple parser validation of e.g. pyproject.toml
+      - id: check-toml
+      # Unify file endings
+      - id: end-of-file-fixer
+
+  # Check Configuration as Code files for integrations
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.35.0
+    hooks:
+      - id: check-github-workflows
+      - id: check-readthedocs
