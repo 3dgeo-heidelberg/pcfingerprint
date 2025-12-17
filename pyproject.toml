@@ -22,7 +22,7 @@ classifiers = [
 dependencies = [
     "numpy",
     "jakteristics",
-    "laspy[lazrs]>=2.3.0",
+    "laspy[lazrs]",
     "matplotlib",
     "plotly",
     "pandas",
