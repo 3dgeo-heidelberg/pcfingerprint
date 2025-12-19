@@ -1,3 +1,5 @@
+![Logo](pcfingerprint_logo.png)
+
 # pcfingerprint
 
 `pcfingerprint` is a Python package for fitness-forpurpose and realism assessment of simulated laser scanning point clouds.
