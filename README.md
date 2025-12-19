@@ -2,6 +2,7 @@
 
 `pcfingerprint` is a Python package for fitness-forpurpose and realism assessment of simulated laser scanning point clouds.
 
+
 ## 💻 Installation
 
 ### Prerequisites
@@ -23,10 +24,17 @@ cd pcfingerprint
 python -m pip install -v --editable .
 ```
 
-The `--editable` flag allows you to change the Python sources of `py4dgeo` without
+The `--editable` flag allows you to change the Python sources of `pcfingerprint` without
 reinstalling the package. The `-v` flag enables verbose output which gives you
 detailed information about the compilation process that you should include into
 potential bug reports.
+
+## 💟 Funding / Acknowledgements
+
+`pcfingerprint` is developed by the [3DGeo Research Group](https://www.uni-heidelberg.de/3dgeo) together with the [Scientific Software Center (SSC)](https://www.ssc.uni-heidelberg.de/en) at Heidelberg University. It is funded by the [Deutsche Forschungsgemeinschaft (DFG)](https://www.dfg.de/de) in the frame of the [Sustainable HELIOS](https://www.geog.uni-heidelberg.de/en/3dgeo/projects-of-the-3dgeo-research-group/fostering-a-community-driven-and-sustainable-helios-scientific-software) project and closely connected to [HELIOS++](https://github.com/3dgeo-heidelberg/helios).
+
+
+
 
 ## 📜 License
 
