@@ -24,7 +24,7 @@ cd pcfingerprint
 python -m pip install -v --editable .
 ```
 
-The `--editable` flag allows you to change the Python sources of `py4dgeo` without
+The `--editable` flag allows you to change the Python sources of `pcfingerprint` without
 reinstalling the package. The `-v` flag enables verbose output which gives you
 detailed information about the compilation process that you should include into
 potential bug reports.
