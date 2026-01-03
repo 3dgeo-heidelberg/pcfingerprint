@@ -169,17 +169,19 @@ def write_las(
         las_offset=None,
     ):
     """
-    Docstring for write_las
+    Function to write a PointCloud object to a LAS/LAZ file with additional attributes.
     Modified after vapc: https://github.com/3dgeo-heidelberg/vapc/blob/main/src/vapc/datahandler.py#L97-L187
     
-    :param pc: Description
+    :param pc: PointCloud object to write
     :type pc: PointCloud
-    :param outfile: Description
-    :type outfile: str
-    :param las_point_format: Description
-    :param las_version: Description
-    :param las_scales: Description
-    :param las_offset: Description
+    :param outfile: Output file path
+    :type outfile: str or Path
+    :param las_point_format: LAS point format to use
+    :param las_version: LAS version to use
+    :param las_scales: las scales for x, y, z
+    :type las_scales: list or np.ndarray
+    :param las_offset: las offset for x, y, z
+    :type las_offset: list or np.ndarray
     """
     if las_scales is None:
         las_scales = [0.00025, 0.00025, 0.00025]
