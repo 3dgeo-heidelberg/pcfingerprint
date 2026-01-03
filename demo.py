@@ -25,3 +25,9 @@ pc_pair.generate_report(
     visualizations=["histogram"],
     vis_backend="matplotlib"
 )
+print("Report generated.")
+
+# write point clouds to disk
+pc_outfolder = "output_pcs/"
+pc_pair.write_point_clouds(pc_outfolder)
+print(f"Point clouds written to {pc_outfolder}")

@@ -20,7 +20,6 @@ class PointCloud:
         self.return_number = return_number  # int array
         self.number_of_returns = number_of_returns  # int array
         self.intensity = intensity  # int array
-        self.n_neighbours = None  # int array
         self.point_density = None  # float array
         self.point_density_radius = None  # radius used for point density
         self.normals = None  # Nx3 array of normal vectors
@@ -116,6 +115,17 @@ class PointCloudPair:
             simulated = self.simulated
         generate_report(self.real_world, simulated, output_path, attribute_list, summary_statistics=summary_statistics, visualizations=visualizations, vis_backend=vis_backend)
 
+    def write_point_clouds(self, output_folder: str):
+        # write real world and simulated point clouds (with new attributes) to output folder
+        output_folder = Path(output_folder)
+        output_folder.mkdir(parents=True, exist_ok=True)
+        # write real world
+        real_outpath = output_folder / Path(self.real_world.source).name
+        write_las(self.real_world, real_outpath)
+        # write simulated
+        for sim_pc in self.simulated:
+            sim_outpath = output_folder / Path(sim_pc.source).name
+            write_las(sim_pc, sim_outpath)
 
 
 def read_las_file(filepath):
@@ -148,6 +158,86 @@ def read_las_file(filepath):
     pc.intensity = intensity
 
     return pc
+
+
+def write_las(
+        pc: PointCloud,
+        outfile: str,
+        las_point_format=7,
+        las_version="1.4",
+        las_scales=None,
+        las_offset=None,
+    ):
+    """
+    Docstring for write_las
+    Modified after vapc: https://github.com/3dgeo-heidelberg/vapc/blob/main/src/vapc/datahandler.py#L97-L187
+    
+    :param pc: Description
+    :type pc: PointCloud
+    :param outfile: Description
+    :type outfile: str
+    :param las_point_format: Description
+    :param las_version: Description
+    :param las_scales: Description
+    :param las_offset: Description
+    """
+    if las_scales is None:
+        las_scales = [0.00025, 0.00025, 0.00025]
+    if las_offset is None:
+        las_offset = np.min(pc.coords, axis=0)
+    
+    new_header = laspy.LasHeader(point_format=las_point_format, version=las_version)
+    new_header.offsets = las_offset
+    new_header.scales = las_scales
+
+    las = laspy.LasData(new_header)
+    las.x = pc.coords[:, 0]
+    las.y = pc.coords[:, 1]
+    las.z = pc.coords[:, 2]
+
+    # standard las fields: gps_time, return_number, number_of_returns, intensity
+    standard_fields = ["gps_time", "return_number", "number_of_returns", "intensity"]
+    for field in standard_fields:
+        data = getattr(pc, field)
+        if data is not None:
+            las[field] = data
+    # some attributes first require attribute name handling by adding a suffix (e.g., search radius)
+    # point density and normals
+    if pc.point_density is not None:
+        pdens_name = f"point_density_r{pc.point_density_radius}"
+        add_dimension_to_laz(las, pc.point_density, pdens_name)
+    if pc.normals is not None:
+        normal_x_name = f"normal_x_r{pc.normal_radius}"
+        normal_y_name = f"normal_y_r{pc.normal_radius}"
+        normal_z_name = f"normal_z_r{pc.normal_radius}"
+        add_dimension_to_laz(las, pc.normals[:, 0], normal_x_name)
+        add_dimension_to_laz(las, pc.normals[:, 1], normal_y_name)
+        add_dimension_to_laz(las, pc.normals[:, 2], normal_z_name)
+    # geometric features (here the feature name already includes the radius suffix)
+    for feat_name, feat_data in pc.geometric_features.items():
+        add_dimension_to_laz(las, feat_data, feat_name)
+
+    las.write(outfile)
+
+
+def add_dimension_to_laz(las_file, array, name):
+        """
+        Adds a new attribute dimension to the LAZ file.
+
+        Writes a new attribute to the LAZ file by adding an extra dimension with the specified name and data type.
+
+        :param array: The data array to be added as a new attribute.
+        :param name: The name of the new attribute.
+        :type array: np.ndarray
+        :type name: str
+
+        :return: None
+        :rtype: None
+        """
+        las_file.add_extra_dim(
+            laspy.ExtraBytesParams(name=name, type=array.dtype, description=name)
+        )
+        las_file[name] = array
 
 
 def get_attribute_data(pc: PointCloud, attribute: str):
