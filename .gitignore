@@ -1,6 +1,7 @@
 # custom
 data/*
 output_report/
+output_pcs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
