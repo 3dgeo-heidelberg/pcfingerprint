@@ -105,13 +105,14 @@ def generate_report(real_pc, sim_pcs: list,
             stats_sim = [stats.compute_statistics(data) for data in sim_data]
             
             # create a pandas dataframe from this
+            keys = stats_real.keys()
             df = pd.DataFrame({
-                'Statistics': ['Mean', 'Median', 'Std Dev'],
-                f'Real': [stats_real['mean'], stats_real['median'], stats_real['std_dev']]
+                'Statistics': keys,
+                f'Real': [stats_real[k] for k in keys],
             })
             # add a column for each simulated pc
-            for i, stats in enumerate(stats_sim):
-                df[f'Simulated {i+1}'] = [stats['mean'], stats['median'], stats['std_dev']]
+            for i, s_stats in enumerate(stats_sim):
+                df[f'Simulated {i+1}'] = [s_stats[k] for k in keys]
             table = DataFrameTable(df, caption="Summary statistics for attribute: " + attribute)
 
             section_content['summary_stat_table'] = table
@@ -130,7 +131,7 @@ def generate_report(real_pc, sim_pcs: list,
                 section_content['histogram'] = figure
             
             
-        #Add the figure and table to the section
+        # Add the figure and table to the section
         section.add_content(section_content)
 
         block_content[f'section_{attribute}'] = section
