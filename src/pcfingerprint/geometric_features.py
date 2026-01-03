@@ -18,15 +18,15 @@ def compute_point_density(point_cloud, radius: float, nthreads: int = -1) -> Non
     """
     # limit radius to 3 decimal places
     radius = np.round(radius, 3)
-    if not "number_of_neighbors" in point_cloud.geometric_features:
+    if not f"number_of_neighbors_r{radius}" in point_cloud.geometric_features:
         feats = jakteristics.compute_features(
         point_cloud.coords,
         search_radius=radius,
         feature_names=["number_of_neighbors"],
         num_threads=nthreads
         )
-        point_cloud.geometric_features["number_of_neighbors"] = feats.reshape(-1)
-    point_cloud.point_density = point_cloud.geometric_features["number_of_neighbors"] / (4/3 * np.pi * radius**3)
+        point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] = feats.reshape(-1)
+    point_cloud.point_density = point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] / (4/3 * np.pi * radius**3)
     point_cloud.point_density_radius = radius
 
 
