@@ -3,39 +3,72 @@ import numpy as np
 import laspy
 from pcfingerprint.geometric_features import compute_point_density, compute_geom_feat
 from pcfingerprint.report import generate_report
+from pcfingerprint.utils import shift_to_zero, standardize, scale_robust
 from pathlib import Path
 
 
 class PointCloud:
     def __init__(self, 
-    coords=None,
-    gps_time=None,
-    return_number=None,
-    number_of_returns=None,
-    intensity=None):
-        self.coords = coords  # Nx3 array of point coordinates
-        self.source = None  # source file path
-        self.kd_tree = None  # KDTree for spatial queries
-        self.gps_time = gps_time  # float array
-        self.return_number = return_number  # int array
-        self.number_of_returns = number_of_returns  # int array
-        self.intensity = intensity  # int array
-        self.point_density = None  # float array
-        self.point_density_radius = None  # radius used for point density
-        self.normals = None  # Nx3 array of normal vectors
-        self.normal_radius = None  # radius used for normal estimation
-        self.geometric_features = {}  # dict of feature name to float array
-        self.voxel_size = None  # size of voxels (float) 
-        self.voxel_indices = None  # Nx3 array of voxel indices (int)
-        self.is_outlier = None  # boolean array
-
+        coords=None,
+        gps_time=None,
+        return_number=None,
+        number_of_returns=None,
+        intensity=None):
+            self.coords = coords  # Nx3 array of point coordinates
+            self.source = None  # source file path
+            self.kd_tree = None  # KDTree for spatial queries
+            self.gps_time = gps_time  # float array
+            self.return_number = return_number  # int array
+            self.number_of_returns = number_of_returns  # int array
+            self.intensity = intensity  # int array
+            self.point_density = None  # float array
+            self.point_density_radius = None  # radius used for point density
+            self.normals = None  # Nx3 array of normal vectors
+            self.normal_radius = None  # radius used for normal estimation
+            self.geometric_features = {}  # dict of feature name to float array
+            self.voxel_size = None  # size of voxels (float) 
+            self.voxel_indices = None  # Nx3 array of voxel indices (int)
+            self.is_outlier = None  # boolean array
+    
+    def shift_z_to_zero(self):
+        """Shift the z-coordinates so that the minimum z-value is zero."""
+        if self.coords is not None:
+            self.coords[:, 2] = shift_to_zero(self.coords[:, 2])
+        else:
+            raise ValueError("PointCloud coordinates are not set.")
+    
+    def shift_gpstime_to_zero(self):
+        """Shift the gps_time so that the minimum gps_time is zero."""
+        if self.gps_time is not None:
+            self.gps_time = shift_to_zero(self.gps_time)
+        else:
+            raise ValueError("PointCloud gps_time is not set.")
+    
+    def robust_scale_intensity(self):
+        """Perform robust scaling on intensity values."""
+        if self.intensity is not None:
+            self.intensity = scale_robust(self.intensity)
+        else:
+            raise ValueError("PointCloud intensity is not set.")
+    
+    def standardize_intensity(self):
+        """Standardize intensity values (z-score normalization)."""
+        if self.intensity is not None:
+            self.intensity = standardize(self.intensity)
+        else:
+            raise ValueError("PointCloud intensity is not set.")
 
 class PointCloudPair:
-    def __init__(self):
+    def __init__(self, shift_z: bool = False, shift_gps_time: bool = False, standardize_intensity: bool = False, robust_scale_intensity: bool = False):
         self.real_world = PointCloud()
         # simulated is a list of PointClouds (minimum 1)
         self.simulated = []
         self.trajectory = None  # Optional trajectory data
+        self.shift_z = shift_z
+        self.shift_gps_time = shift_gps_time
+        self.standardize_intensity = standardize_intensity
+        self.robust_scale_intensity = robust_scale_intensity
+
     
     def drop_attributes(self):
         # drop attributes that are not present in all point clouds
@@ -53,16 +86,40 @@ class PointCloudPair:
     def load_real_world(self, filepath: str):
         self.real_world = read_las_file(filepath)
         self.real_world.source = filepath
+        if self.shift_z:
+            self.real_world.shift_z_to_zero()
+        if self.shift_gps_time:
+            self.real_world.shift_gpstime_to_zero()
+        if self.robust_scale_intensity and self.standardize_intensity:
+            raise ValueError("Cannot apply both robust scaling and standardization to intensity.")
+        if self.robust_scale_intensity:
+            self.real_world.robust_scale_intensity()
+        if self.standardize_intensity:
+            self.real_world.standardize_intensity()
         # if simulated point cloud is already loaded, drop non-overlapping attributes
         if self.simulated != []:
             self.drop_attributes()
     
-    def load_simulated(self, filepaths: list[str] | str):
+    def load_simulated(self, filepaths: list[str] | str, shift_z: bool = False, shift_gps_time: bool = False, robust_scale_intensity: bool = False, standardize_intensity: bool = False):
         if isinstance(filepaths, str):
             filepaths = [filepaths]
         for filepath in filepaths:
             self.simulated.append(read_las_file(filepath))
             self.simulated[-1].source = filepath
+        if self.shift_z:
+            for pc in self.simulated:
+                pc.shift_z_to_zero()
+        if self.shift_gps_time:
+            for pc in self.simulated:
+                pc.shift_gpstime_to_zero()
+        if self.robust_scale_intensity and self.standardize_intensity:
+            raise ValueError("Cannot apply both robust scaling and standardization to intensity.")
+        if self.standardize_intensity:
+            for pc in self.simulated:
+                pc.standardize_intensity()
+        if self.robust_scale_intensity:
+            for pc in self.simulated:
+                pc.robust_scale_intensity()
         # if real world point cloud is already loaded, drop non-overlapping attributes
         if self.real_world.coords is not None:
             self.drop_attributes()
