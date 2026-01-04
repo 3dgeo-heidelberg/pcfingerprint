@@ -2,7 +2,7 @@ import pcfingerprint
 from pathlib import Path
 
 # load data
-pc_pair = pcfingerprint.PointCloudPair()
+pc_pair = pcfingerprint.PointCloudPair(standardize_intensity=True, shift_z=True)
 pc_pair.load_real_world("data/uls_reference.laz")
 pc_pair.load_simulated(list(Path("data").glob("uls_detailed_voxel*.laz")))
 
@@ -20,7 +20,7 @@ print("Geometric features computed.")
 # generate project report
 pc_pair.generate_report(
     output_path="output_report/test_report.html",
-    attribute_list=["z", "point_density", "linearity", "number_of_returns"],
+    attribute_list=["z", "point_density", "linearity", "number_of_returns", "intensity"],
     summary_statistics=True,
     visualizations=["histogram"],
     vis_backend="matplotlib"
