@@ -56,6 +56,7 @@ def generate_report(real_pc, sim_pcs: list,
                     output_path: str,
                     attribute_list: list[str],
                     summary_statistics: bool = True,
+                    return_number_metrics: bool = False,
                     visualizations: list[str] = ["histogram"],
                     vis_backend: str = "matplotlib"):
     """Generate an HTML report comparing real-world and simulated point clouds."""
@@ -139,6 +140,38 @@ def generate_report(real_pc, sim_pcs: list,
         section.add_content(section_content)
 
         block_content[f'section_{attribute}'] = section
+    
+    # section for return number metrics
+    if return_number_metrics:
+        from pcfingerprint import stats
+        section = Section(section_title=f"Return Number Metrics")
+
+        # compute return number statistics
+        metrics_real = stats.compute_return_number_metrics(real_pc.return_number, real_pc.number_of_returns)
+        metrics_sim = [stats.compute_return_number_metrics(sim_pc.return_number, sim_pc.number_of_returns) for sim_pc in sim_pcs]
+
+        # create a pandas dataframe from this
+        keys = metrics_real.keys()
+        df = pd.DataFrame({
+            'Statistics': keys,
+            f'Real': [metrics_real[k] for k in keys],
+        })
+        df['Real'] = df['Real'].astype(object)
+        # add a column for each simulated pc
+        for i, s_metrics in enumerate(metrics_sim):
+            df[f'Simulated {i+1}'] = [s_metrics[k] for k in keys]
+            df[f'Simulated {i+1}'] = df[f'Simulated {i+1}'].astype(object)
+        # row formatting
+        for k in keys:
+            if 'fraction' in k:
+                df.loc[df['Statistics'] == k, df.columns != 'Statistics'] = df.loc[df['Statistics'] == k, df.columns != 'Statistics'].map(lambda x: f"{x:.3%}")
+            elif 'number' in k:
+                # as integer with comma as thousand separator
+                df.loc[df['Statistics'] == k, df.columns != 'Statistics'] = df.loc[df['Statistics'] == k, df.columns != 'Statistics'].map(lambda x: f"{int(x):,}")
+        table = DataFrameTable(df, caption="Return Number Metrics")
+
+        section.add_content({'return_number_table': table})
+        block_content['section_return_number_metrics'] = section
     
     # Add the sections to the report
     report.add_blocks(block_content)
