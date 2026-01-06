@@ -117,12 +117,16 @@ def generate_report(real_pc, sim_pcs: list,
 
             section_content['summary_stat_table'] = table
         
-        if "histogram" in visualizations:
+        if "histogram" in visualizations or "histogram_overlay" in visualizations:
+            if "histogram_overlay" in visualizations:
+                overlay = True
+            else:
+                overlay = False
             # generate histogram plot
             if vis_backend == "matplotlib":
                 # if using matplotlib, we generate static image and insert as base64 png
                 from pcfingerprint.vis_matplotlib import plot_histogram
-                fig = plot_histogram(real_pc, sim_pcs, attribute)
+                fig = plot_histogram(real_pc, sim_pcs, attribute, overlay=overlay)
                 # convert fig to base64
                 img_file = report.target_folder / Path(f"{attribute}_histogram.png")
                 fig.savefig(img_file, format='png')
