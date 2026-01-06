@@ -3,7 +3,20 @@ import pandas as pd
 
 
 def compute_statistics(data: np.ndarray, location_stats=True, spread_stats=True, shape_stats=False) -> dict:
-    """Compute summary statistics for a given data array"""
+    """Compute summary statistics for a given data array
+    
+    :param data: Input data array
+    :type data: np.ndarray
+    :param location_stats: Whether to compute location statistics (mean, median, mode)
+    :type location_stats: bool
+    :param spread_stats: Whether to compute spread statistics (std dev, variance, min, max, range, iqr, cov)
+    :type spread_stats: bool
+    :param shape_stats: Whether to compute shape statistics (skewness, kurtosis)
+    :type shape_stats: bool
+    
+    :return: Dictionary of computed statistics
+    :rtype: dict
+    """
     mean = np.nanmean(data)
     stats = {}
     if location_stats:
@@ -44,9 +57,13 @@ def compute_return_number_metrics(return_number, number_of_returns) -> dict:
     - fraction of intermediate returns
     - fraction of multiple returns
 
-    :param pc_data: Description
-    :return: Description
-    :rtype: DataFrame
+    :param return_number: Array of return numbers
+    :type return_number: sequence or np.ndarray (or laspy SubFieldView)
+    :param number_of_returns: Array of number of returns
+    :type number_of_returns: sequence or np.ndarray (or laspy SubFieldView)
+
+    :return: Dictionary of return number metrics
+    :rtype: dict
     """
     assert return_number.shape == number_of_returns.shape, "return_number and number_of_returns must have the same shape"
     # convert to numpy arrays if not already
