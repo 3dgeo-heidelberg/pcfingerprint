@@ -22,6 +22,7 @@ pc_pair.generate_report(
     output_path="output_report/test_report.html",
     attribute_list=["z", "point_density", "linearity", "number_of_returns", "intensity"],
     summary_statistics=True,
+    return_number_metrics=True,
     visualizations=["histogram_overlay"],  # "histogram" will instead plot histograms side by side
     vis_backend="matplotlib"
 )

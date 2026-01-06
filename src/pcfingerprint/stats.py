@@ -35,3 +35,40 @@ def compute_statistics(data: np.ndarray, location_stats=True, spread_stats=True,
         }
         stats.update(shape_stats)
     return stats
+
+
+def compute_return_number_metrics(return_number, number_of_returns) -> dict:
+    """
+    Function to compute
+    - fraction of first returns
+    - fraction of intermediate returns
+    - fraction of multiple returns
+
+    :param pc_data: Description
+    :return: Description
+    :rtype: DataFrame
+    """
+    assert return_number.shape == number_of_returns.shape, "return_number and number_of_returns must have the same shape"
+    # convert to numpy arrays if not already
+    return_number = np.array(return_number)
+    number_of_returns = np.array(number_of_returns)
+    total_points = int(return_number.shape[0])
+    first_returns = int(np.sum(return_number == 1))
+    last_returns = int(np.sum(return_number == number_of_returns))
+    intermediate_returns = int(np.sum((return_number > 1) & (return_number < number_of_returns)))
+    multiple_returns = int(np.sum(number_of_returns > 1))
+    single_returns = int(np.sum(number_of_returns == 1))
+    metrics = {
+        'number of first returns': first_returns,
+        'number of intermediate returns': intermediate_returns,
+        'number of last returns': last_returns,
+        'number of single returns': single_returns,
+        'number of multiple returns': multiple_returns,
+        'fraction of first returns': first_returns / total_points,
+        'fraction of intermediate returns': intermediate_returns / total_points,
+        'fraction of last returns': last_returns / total_points,
+        'fraction of single returns': single_returns / total_points,
+        'fraction of multiple returns': multiple_returns / total_points,
+    }
+
+    return metrics
