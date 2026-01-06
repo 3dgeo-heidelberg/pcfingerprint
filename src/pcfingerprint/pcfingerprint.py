@@ -153,17 +153,17 @@ class PointCloudPair:
         for sim_pc in self.simulated:
             compute_geom_feat(sim_pc, feature_names, radius, nthreads)
     
-    def plot_histogram(self, attribute: str, bins: int = 100, backend: str = "matplotlib"):
+    def plot_histogram(self, attribute: str, bins: int = 100, backend: str = "matplotlib", overlay: bool = False):
         if backend == "matplotlib":
             from pcfingerprint.vis_matplotlib import plot_histogram
-            fig = plot_histogram(self.real_world, self.simulated[0], attribute, bins)
+            fig = plot_histogram(self.real_world, self.simulated[0], attribute, bins, overlay=overlay)
         elif backend == "plotly":
             pass
         else:
             raise ValueError(f"Backend {backend} not supported.")
         return fig
     
-    def generate_report(self, output_path: str, attribute_list: list[str], summary_statistics: bool = True, visualizations: list[str] = ["histogram"], vis_backend: str = "matplotlib"):
+    def generate_report(self, output_path: str, attribute_list: list[str], summary_statistics: bool = True, visualizations: list[str] = ["histogram_overlay"], vis_backend: str = "matplotlib"):
         # generate html report with histograms for each attribute in attribute_list
         if len(self.simulated) > 5:
             warnings.warn("More than 5 simulated point clouds provided. Report will only consider the first five.")
