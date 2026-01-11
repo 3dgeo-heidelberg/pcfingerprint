@@ -86,6 +86,22 @@ def generate_report(real_pc, sim_pcs: list,
     section.add_content({'file_table': table})
     block_content['section_overview'] = section
 
+    # section for 3D scatter plot
+    if "3d_scatter" in visualizations:
+        section = Section(section_title=f"3D Scatter Plot Comparison")
+        # generate 3d scatter plot
+        if vis_backend == "matplotlib":
+            # if using matplotlib, we generate static image and insert as base64 png
+            from pcfingerprint.vis_matplotlib import plot_3d_scatter
+            fig = plot_3d_scatter(real_pc, sim_pcs)
+            # convert fig to base64
+            img_file = report.target_folder / Path(f"3d_scatter.png")
+            fig.savefig(img_file, format='png')
+            plt.close(fig)
+            figure = MatplotlibFigure(image_name=img_file, caption="3D Scatter Plot Comparison")
+            section.add_content({'3d_scatter_plot': figure})
+        block_content['section_3d_scatter'] = section
+    
     # Add a section for each attribute
     for attribute in attribute_list:
         section = Section(section_title=f"Comparing {attribute}")
