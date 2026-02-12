@@ -47,11 +47,11 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
         n_colours = len(sim_pcs) + 1
         colors = plt.cm.get_cmap('tab10', n_colours)
         # real world
-        p = ax.scatter(real_pc.coords[:, 0], real_pc.coords[:, 1], real_pc.coords[:, 2], c=colors(0), cmap='viridis', s=0.2, label='Real World Point Cloud')
+        p = ax.scatter(real_pc.coords[:, 0], real_pc.coords[:, 1], real_pc.coords[:, 2], c=colors(0), cmap='viridis', s=0.1, label='Real World Point Cloud')
         # simulated
         for i, sim_pc in enumerate(sim_pcs):
             color = colors(i + 1)
-            ax.scatter(sim_pc.coords[:, 0], sim_pc.coords[:, 1], sim_pc.coords[:, 2], c=color, cmap='viridis', s=0.2, label=f'Simulated Point Cloud {i+1}')
+            ax.scatter(sim_pc.coords[:, 0], sim_pc.coords[:, 1], sim_pc.coords[:, 2], c=color, cmap='viridis', s=0.1, label=f'Simulated Point Cloud {i+1}')
         ax.set_title('3D Scatter Plot of Point Clouds')
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
