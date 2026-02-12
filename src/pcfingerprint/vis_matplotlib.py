@@ -15,15 +15,105 @@ plt.rcParams['grid.alpha'] = 1
 plt.rcParams['grid.color'] = "#cccccc"
 
 
-def plot_3d_scatter(real_pc, sim_pc, attribute: str = None):
-    pass
+def subsample_points(pc, max_n_points: int = 500_000):
+    num_points = pc.coords.shape[0]
+    if num_points > max_n_points:
+        indices = np.random.choice(num_points, max_n_points, replace=False)
+        pc = pc.get_subset(indices)
+        print(f"Subsampled from {num_points} to {pc.coords.shape[0]} points for visualization.")
+    else:
+        indices = np.arange(num_points)
+    return pc, indices
+
+
+def style_axis(ax):
+    ax.set_xlabel('X', labelpad=-10)
+    ax.set_ylabel('Y', labelpad=-10)
+    ax.set_zlabel('Z', labelpad=-10)
+    # disable tick labels for cleaner look
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_zticklabels([])
+
+
+def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points: int = 500_000, overlay: bool = False):
+    
+    # subsample points if necessary
+    real_pc, subsample_indices = subsample_points(real_pc, max_n_points)
+    sim_pc_sub = [subsample_points(sim_pc, max_n_points) for i, sim_pc in enumerate(sim_pcs)]
+    sim_pcs, sim_subsample_indices = zip(*sim_pc_sub)
+
+    if overlay:
+        # overlay all point clouds in one plot - only really makes sense for two point clouds
+        fig, ax = plt.subplots(figsize=(8, 6), subplot_kw={'projection': '3d'})
+        n_colours = len(sim_pcs) + 1
+        colors = plt.cm.get_cmap('tab10', n_colours)
+        # real world
+        p = ax.scatter(real_pc.coords[:, 0], real_pc.coords[:, 1], real_pc.coords[:, 2], c=colors(0), cmap='viridis', s=0.1, label='Real World Point Cloud')
+        # simulated
+        for i, sim_pc in enumerate(sim_pcs):
+            color = colors(i + 1)
+            ax.scatter(sim_pc.coords[:, 0], sim_pc.coords[:, 1], sim_pc.coords[:, 2], c=color, cmap='viridis', s=0.1, label=f'Simulated Point Cloud {i+1}')
+        ax.set_title('3D Scatter Plot of Point Clouds')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.set_box_aspect((np.ptp(real_pc.coords[:, 0]), np.ptp(real_pc.coords[:, 1]), np.ptp(real_pc.coords[:, 2])))
+        plt.legend()
+    else:
+        print(f"Generating 3D scatter plot colored by {attribute}...")
+
+        # get attribute data
+        real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
+        real_data = real_data[subsample_indices]
+        sim_data = [pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute) for sim_pc in sim_pcs]
+        sim_data = [data[sim_subsample_indices[i]] for i, data in enumerate(sim_data)]
+
+        # determine plot grid based on inputs
+        if len(sim_pcs) == 1:
+            nrows, ncols = 1, 2
+        elif len(sim_pcs) <= 3:
+            nrows, ncols = 2, 2
+        elif len(sim_pcs) <= 5:
+            nrows, ncols = 2, 3
+        fig, axs = plt.subplots(nrows, ncols, figsize=(14, 9), dpi=100, subplot_kw={'projection': '3d'}, layout='constrained')
+        
+        # Ensure axs is always 2D for consistent indexing
+        if nrows == 1:
+            axs = axs.reshape(1, -1)
+        
+        # compute global vmin and vmax for color scale
+        vmin = min(real_data.min(), min([data.min() for data in sim_data]))
+        vmax = max(real_data.max(), max([data.max() for data in sim_data]))
+
+        # ax 0 is always real pc
+        p = axs[0, 0].scatter(real_pc.coords[:, 0], real_pc.coords[:, 1], real_pc.coords[:, 2], c=real_data, cmap='viridis', s=0.2, vmin=vmin, vmax=vmax)
+        axs[0, 0].set_title('Real World Point Cloud')
+        style_axis(axs[0, 0])
+        # equal scaling
+        axs[0, 0].set_box_aspect((np.ptp(real_pc.coords[:, 0]), np.ptp(real_pc.coords[:, 1]), np.ptp(real_pc.coords[:, 2])))
+        for i, sim_pc in enumerate(sim_pcs):
+            row = (i + 1) // ncols
+            col = (i + 1) % ncols
+            axs[row, col].scatter(sim_pc.coords[:, 0], sim_pc.coords[:, 1], sim_pc.coords[:, 2], c=sim_data[i], cmap='viridis', s=0.2, vmin=vmin, vmax=vmax)
+            axs[row, col].set_title(f'Simulated Point Cloud {i+1}')
+            style_axis(axs[row, col])
+            # equal scaling
+            axs[row, col].set_box_aspect((np.ptp(sim_pc.coords[:, 0]), np.ptp(sim_pc.coords[:, 1]), np.ptp(sim_pc.coords[:, 2])))
+        # colorbar to the right side spanning all rows
+        fig.colorbar(p, label=attribute, ax=axs[:, :], location='right')
+        # hide any unused subplots
+        if len(sim_pcs) + 1 < nrows * ncols:
+            axs[row, -1].axis('off')
+    return fig
+
 
 def plot_histogram(real_pc, sim_pcs: list, attribute: str, bins: int = 100, overlay: bool = False):
     """
     Plot histograms of an attribute for real and simulated point clouds side by side.
     
     :param real_pc: PointCloud object representing the real-world point cloud
-    :param sim_pc: PointCloud object representing the simulated point cloud
+    :param sim_pcs: List of PointCloud objects representing the simulated point clouds
     :param attribute: Name of the attribute to plot
     :type attribute: str
     :param bins: Number of bins for the histogram
@@ -65,6 +155,11 @@ def plot_histogram(real_pc, sim_pcs: list, attribute: str, bins: int = 100, over
         elif len(sim_pcs) <= 5:
             nrows, ncols = 2, 3
         fig, axs = plt.subplots(nrows, ncols, figsize=(12, 5))
+
+        # Ensure axs is always 2D for consistent indexing
+        if nrows == 1:
+            axs = axs.reshape(1, -1)
+        
         # get max frequency to scale y-axis equally
         max_freq = 0
         max_freq = max(max_freq, max(np.histogram(real_data, bins=bins)[0]))

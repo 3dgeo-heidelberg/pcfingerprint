@@ -1,7 +1,7 @@
 """
 Module for generating comparison reports between point clouds.
 """
-from typing import Union, Optional
+from typing import Union, Optional, List
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -32,10 +32,9 @@ class MatplotlibFigure(Figure):
         """
         The constructor of the MatplotlibFigure class
         Args:
-            figure_obj: The matplotlib figure object
+            image name (Path): The path to the matplotlib figure
             caption(str): The caption text
             notes (List[str]): The notes to be added to the caption
-            post_script: javascript code to be executed after the figure is rendered
         """
         super(MatplotlibFigure, self).__init__(caption, notes)
         self.image_name = image_name
@@ -50,6 +49,77 @@ class MatplotlibFigure(Figure):
         return html
 
 
+class MatplotlibFigureSelection(Figure):
+    """
+    Class representing a set of matplotlib figures in the report with a dropdown menu to switch between
+    """
+    def __init__(
+            self,
+            image_names: List[Path],
+            image_labels: List[str],
+            caption: str = "",
+            notes: Optional[list[str]] = None,
+    ):
+        super().__init__(caption, notes)
+        
+        if len(image_names) != len(image_labels):
+            raise ValueError("image_names and image_labels must have the same length")
+        if len(image_names) == 0:
+            raise ValueError("At least one image must be provided")
+            
+        self.image_names = image_names
+        self.image_labels = image_labels
+
+    def _as_html_figure_content(self, report: ReportInterface) -> str:
+        element_id = f"fig_sel_{self.id.replace('-', '_')}"
+        
+        # Create the dropdown options
+        options_html = ""
+        for i, label in enumerate(self.image_labels):
+            selected = "selected" if i == 0 else ""
+            options_html += f'<option value="{i}" {selected}>{label}</option>\n'
+        
+        # Create the image tags - FIRST IMAGE BLOCK, OTHERS NONE
+        images_html = ""
+        for i, name in enumerate(self.image_names):
+            display_style = "block" if i == 0 else "none"  # <-- This is the key fix
+            images_html += f'''
+                <img id="{element_id}_img_{i}" 
+                    src="{name.name}" 
+                    alt="{self.image_labels[i]}" 
+                    style="max-width: 100%; display: {display_style};" />
+            '''
+        
+        html = f'''
+        <div style="margin-bottom: 20px;">
+            <div style="margin-bottom: 10px;">
+                <label for="{element_id}_dropdown" style="font-weight: bold; margin-right: 10px;"></label>
+                <select id="{element_id}_dropdown" 
+                        onchange="switchImage_{element_id}(this.value)" 
+                        style="padding: 8px; border-radius: 4px; border: 1px solid #ccc; min-width: 200px;">
+                    {options_html}
+                </select>
+            </div>
+            <div style="text-align: center; background-color: white; padding: 10px; border-radius: 4px;">
+                {images_html}
+            </div>
+        </div>
+        
+        <script>
+        function switchImage_{element_id}(index) {{
+            for (let i = 0; i < {len(self.image_names)}; i++) {{
+                let img = document.getElementById('{element_id}_img_' + i);
+                if (img) img.style.display = i == parseInt(index) ? 'block' : 'none';
+            }}
+        }}
+        // Ensure first image is visible when page loads
+        document.addEventListener('DOMContentLoaded', function() {{
+            switchImage_{element_id}(0);
+        }});
+        </script>
+        '''
+        
+        return html
 
 
 def generate_report(real_pc, sim_pcs: list,
@@ -86,6 +156,32 @@ def generate_report(real_pc, sim_pcs: list,
     section.add_content({'file_table': table})
     block_content['section_overview'] = section
 
+    # section for 3D scatter plot
+    if "3d_scatter" in visualizations:
+        section = Section(section_title=f"3D Scatter Plot Comparison")
+        # generate 3d scatter plot
+        if vis_backend == "matplotlib":
+            # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
+            from pcfingerprint.vis_matplotlib import plot_3d_scatter
+            if len(attribute_list) == 0:
+                plot_attribute_list = ["z"]
+            else:
+                plot_attribute_list = attribute_list
+            imgs = {}
+            for attribute in plot_attribute_list:
+                fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
+                # convert fig to base64
+                img_file = report.target_folder / Path(f"3d_scatter_{attribute}.png")
+                fig.savefig(img_file, format='png')
+                plt.close(fig)
+                imgs[attribute] = img_file
+            figure_selection = MatplotlibFigureSelection(image_names=list(imgs.values()), image_labels=list(imgs.keys()), caption="3D Scatter Plot Comparison")
+            section.add_content({'3d_scatter_plot': figure_selection})
+        else:
+            # other backends not supported yet
+            raise NotImplementedError(f"Visualization backend {vis_backend} not supported for 3D scatter plot.")
+        block_content['section_3d_scatter'] = section
+    
     # Add a section for each attribute
     for attribute in attribute_list:
         section = Section(section_title=f"Comparing {attribute}")
@@ -125,7 +221,7 @@ def generate_report(real_pc, sim_pcs: list,
                 overlay = False
             # generate histogram plot
             if vis_backend == "matplotlib":
-                # if using matplotlib, we generate static image and insert as base64 png
+                # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
                 from pcfingerprint.vis_matplotlib import plot_histogram
                 fig = plot_histogram(real_pc, sim_pcs, attribute, overlay=overlay)
                 # convert fig to base64
@@ -134,6 +230,9 @@ def generate_report(real_pc, sim_pcs: list,
                 plt.close(fig)
                 figure = MatplotlibFigure(image_name=img_file, caption=f"Histogram of {attribute}")
                 section_content['histogram'] = figure
+            else:
+            # other backends not supported yet
+                raise NotImplementedError(f"Visualization backend {vis_backend} not supported for histogram plot.")
             
             
         # Add the figure and table to the section
