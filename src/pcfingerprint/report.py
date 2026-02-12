@@ -93,7 +93,7 @@ class MatplotlibFigureSelection(Figure):
         html = f'''
         <div style="margin-bottom: 20px;">
             <div style="margin-bottom: 10px;">
-                <label for="{element_id}_dropdown" style="font-weight: bold; margin-right: 10px;">Select view:</label>
+                <label for="{element_id}_dropdown" style="font-weight: bold; margin-right: 10px;"></label>
                 <select id="{element_id}_dropdown" 
                         onchange="switchImage_{element_id}(this.value)" 
                         style="padding: 8px; border-radius: 4px; border: 1px solid #ccc; min-width: 200px;">

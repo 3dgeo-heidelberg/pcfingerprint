@@ -25,6 +25,17 @@ def subsample_points(pc, max_n_points: int = 500_000):
         indices = np.arange(num_points)
     return pc, indices
 
+
+def style_axis(ax):
+    ax.set_xlabel('X', labelpad=-10)
+    ax.set_ylabel('Y', labelpad=-10)
+    ax.set_zlabel('Z', labelpad=-10)
+    # disable tick labels for cleaner look
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_zticklabels([])
+
+
 def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points: int = 500_000, overlay: bool = False):
     
     # subsample points if necessary
@@ -65,7 +76,7 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
             nrows, ncols = 2, 2
         elif len(sim_pcs) <= 5:
             nrows, ncols = 2, 3
-        fig, axs = plt.subplots(nrows, ncols, figsize=(12, 5), subplot_kw={'projection': '3d'})
+        fig, axs = plt.subplots(nrows, ncols, figsize=(14, 9), dpi=100, subplot_kw={'projection': '3d'}, layout='constrained')
         
         # Ensure axs is always 2D for consistent indexing
         if nrows == 1:
@@ -78,9 +89,7 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
         # ax 0 is always real pc
         p = axs[0, 0].scatter(real_pc.coords[:, 0], real_pc.coords[:, 1], real_pc.coords[:, 2], c=real_data, cmap='viridis', s=0.2, vmin=vmin, vmax=vmax)
         axs[0, 0].set_title('Real World Point Cloud')
-        axs[0, 0].set_xlabel('X')
-        axs[0, 0].set_ylabel('Y')
-        axs[0, 0].set_zlabel('Z')
+        style_axis(axs[0, 0])
         # equal scaling
         axs[0, 0].set_box_aspect((np.ptp(real_pc.coords[:, 0]), np.ptp(real_pc.coords[:, 1]), np.ptp(real_pc.coords[:, 2])))
         for i, sim_pc in enumerate(sim_pcs):
@@ -88,15 +97,14 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
             col = (i + 1) % ncols
             axs[row, col].scatter(sim_pc.coords[:, 0], sim_pc.coords[:, 1], sim_pc.coords[:, 2], c=sim_data[i], cmap='viridis', s=0.2, vmin=vmin, vmax=vmax)
             axs[row, col].set_title(f'Simulated Point Cloud {i+1}')
-            axs[row, col].set_xlabel('X')
-            axs[row, col].set_ylabel('Y')
-            axs[row, col].set_zlabel('Z')
+            style_axis(axs[row, col])
+            # equal scaling
             axs[row, col].set_box_aspect((np.ptp(sim_pc.coords[:, 0]), np.ptp(sim_pc.coords[:, 1]), np.ptp(sim_pc.coords[:, 2])))
-        fig.colorbar(p, label=attribute)
+        # colorbar to the right side spanning all rows
+        fig.colorbar(p, label=attribute, ax=axs[:, :], location='right')
         # hide any unused subplots
         if len(sim_pcs) + 1 < nrows * ncols:
             axs[row, -1].axis('off')
-        # plt.tight_layout()
     return fig
 
 
