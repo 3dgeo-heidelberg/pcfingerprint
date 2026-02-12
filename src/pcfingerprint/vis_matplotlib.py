@@ -68,6 +68,10 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
             nrows, ncols = 2, 3
         fig, axs = plt.subplots(nrows, ncols, figsize=(12, 5), subplot_kw={'projection': '3d'})
         
+        # Ensure axs is always 2D for consistent indexing
+        if nrows == 1:
+            axs = axs.reshape(1, -1)
+
         # ax 0 is always real pc
         p = axs[0, 0].scatter(real_pc.coords[:, 0], real_pc.coords[:, 1], real_pc.coords[:, 2], c=real_data, cmap='viridis', s=0.2)
         axs[0, 0].set_title('Real World Point Cloud')
@@ -140,6 +144,11 @@ def plot_histogram(real_pc, sim_pcs: list, attribute: str, bins: int = 100, over
         elif len(sim_pcs) <= 5:
             nrows, ncols = 2, 3
         fig, axs = plt.subplots(nrows, ncols, figsize=(12, 5))
+
+        # Ensure axs is always 2D for consistent indexing
+        if nrows == 1:
+            axs = axs.reshape(1, -1)
+        
         # get max frequency to scale y-axis equally
         max_freq = 0
         max_freq = max(max_freq, max(np.histogram(real_data, bins=bins)[0]))
