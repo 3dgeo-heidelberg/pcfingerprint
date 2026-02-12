@@ -15,31 +15,22 @@ plt.rcParams['grid.alpha'] = 1
 plt.rcParams['grid.color'] = "#cccccc"
 
 
-def subsample_points(pc, attribute_data, max_n_points: int = 500_000):
+def subsample_points(pc, max_n_points: int = 500_000):
     num_points = pc.coords.shape[0]
     if num_points > max_n_points:
         indices = np.random.choice(num_points, max_n_points, replace=False)
         pc = pc.get_subset(indices)
-        attribute_data = attribute_data[indices]
         print(f"Subsampled from {num_points} to {pc.coords.shape[0]} points for visualization.")
-    return pc, attribute_data
-
+    else:
+        indices = np.arange(num_points)
+    return pc, indices
 
 def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points: int = 500_000, overlay: bool = False):
-    # get attribute data
-    if attribute is not None:
-        real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
-        sim_data = [pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute) for sim_pc in sim_pcs]
-    else:
-        # color by z if no attribute specified
-        real_data = real_pc.coords[:, 2]
-        sim_data = [sim_pc.coords[:, 2] for sim_pc in sim_pcs]
-        attribute = "z"
-
+    
     # subsample points if necessary
-    real_pc, real_data = subsample_points(real_pc, real_data, max_n_points)
-    sim_pc_sub = [subsample_points(sim_pc, sim_data[i], max_n_points) for i, sim_pc in enumerate(sim_pcs)]
-    sim_pcs, sim_data = zip(*sim_pc_sub)
+    real_pc, subsample_indices = subsample_points(real_pc, max_n_points)
+    sim_pc_sub = [subsample_points(sim_pc, max_n_points) for i, sim_pc in enumerate(sim_pcs)]
+    sim_pcs, sim_subsample_indices = zip(*sim_pc_sub)
 
     if overlay:
         # overlay all point clouds in one plot - only really makes sense for two point clouds
@@ -59,6 +50,14 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
         ax.set_box_aspect((np.ptp(real_pc.coords[:, 0]), np.ptp(real_pc.coords[:, 1]), np.ptp(real_pc.coords[:, 2])))
         plt.legend()
     else:
+        print(f"Generating 3D scatter plot colored by {attribute}...")
+
+        # get attribute data
+        real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
+        real_data = real_data[subsample_indices]
+        sim_data = [pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute) for sim_pc in sim_pcs]
+        sim_data = [data[sim_subsample_indices[i]] for i, data in enumerate(sim_data)]
+
         # determine plot grid based on inputs
         if len(sim_pcs) == 1:
             nrows, ncols = 1, 2
@@ -71,9 +70,13 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
         # Ensure axs is always 2D for consistent indexing
         if nrows == 1:
             axs = axs.reshape(1, -1)
+        
+        # compute global vmin and vmax for color scale
+        vmin = min(real_data.min(), min([data.min() for data in sim_data]))
+        vmax = max(real_data.max(), max([data.max() for data in sim_data]))
 
         # ax 0 is always real pc
-        p = axs[0, 0].scatter(real_pc.coords[:, 0], real_pc.coords[:, 1], real_pc.coords[:, 2], c=real_data, cmap='viridis', s=0.2)
+        p = axs[0, 0].scatter(real_pc.coords[:, 0], real_pc.coords[:, 1], real_pc.coords[:, 2], c=real_data, cmap='viridis', s=0.2, vmin=vmin, vmax=vmax)
         axs[0, 0].set_title('Real World Point Cloud')
         axs[0, 0].set_xlabel('X')
         axs[0, 0].set_ylabel('Y')
@@ -83,7 +86,7 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
         for i, sim_pc in enumerate(sim_pcs):
             row = (i + 1) // ncols
             col = (i + 1) % ncols
-            axs[row, col].scatter(sim_pc.coords[:, 0], sim_pc.coords[:, 1], sim_pc.coords[:, 2], c=sim_data[i], cmap='viridis', s=0.2)
+            axs[row, col].scatter(sim_pc.coords[:, 0], sim_pc.coords[:, 1], sim_pc.coords[:, 2], c=sim_data[i], cmap='viridis', s=0.2, vmin=vmin, vmax=vmax)
             axs[row, col].set_title(f'Simulated Point Cloud {i+1}')
             axs[row, col].set_xlabel('X')
             axs[row, col].set_ylabel('Y')
