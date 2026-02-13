@@ -200,16 +200,37 @@ def generate_report(real_pc, sim_pcs: list,
             # compute summary statistics
             stats_real = stats.compute_statistics(real_data)            
             stats_sim = [stats.compute_statistics(data) for data in sim_data]
+
+            # remove stats where all values are NaN across real and simulated (e.g. mode if not int)
+            keys_to_remove = []
+            for k in stats_real.keys():
+                try: 
+                    if np.isnan(stats_real[k]) and all([np.isnan(s_stats[k]) for s_stats in stats_sim]):
+                        keys_to_remove.append(k)
+                except TypeError:
+                    if pd.isnull(stats_real[k]) and all([pd.isnull(s_stats[k]) for s_stats in stats_sim]):
+                        keys_to_remove.append(k)
+            for k in keys_to_remove:
+                del stats_real[k]
+                for s_stats in stats_sim:
+                    del s_stats[k]
             
             # create a pandas dataframe from this
             keys = stats_real.keys()
             df = pd.DataFrame({
                 'Statistics': keys,
-                f'Real': [stats_real[k] for k in keys],
+                f'Real': [stats_real[k].astype(object) for k in keys],
             })
             # add a column for each simulated pc
             for i, s_stats in enumerate(stats_sim):
-                df[f'Simulated {i+1}'] = [s_stats[k] for k in keys]
+                df[f'Simulated {i+1}'] = [s_stats[k].astype(object) for k in keys]
+
+            # row formatting
+            for k in keys:
+                if not "mode" in k:
+                    # limit to four decimal places
+                    df.loc[df['Statistics'] == k, df.columns != 'Statistics'] = df.loc[df['Statistics'] == k, df.columns != 'Statistics'].map(lambda x: f"{x:.4f}")
+
             table = DataFrameTable(df, caption="Summary statistics for attribute: " + attribute)
 
             section_content['summary_stat_table'] = table
