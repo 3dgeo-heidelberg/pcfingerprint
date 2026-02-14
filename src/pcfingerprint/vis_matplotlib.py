@@ -108,7 +108,7 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
     return fig
 
 
-def plot_histogram(real_pc, sim_pcs: list, attribute: str, bins: int = 100, overlay: bool = False):
+def plot_histogram(real_pc, sim_pcs: list, attribute: str, bins: int = 100, overlay: bool = False, normalize: bool = False):
     """
     Plot histograms of an attribute for real and simulated point clouds side by side.
     
@@ -118,7 +118,15 @@ def plot_histogram(real_pc, sim_pcs: list, attribute: str, bins: int = 100, over
     :type attribute: str
     :param bins: Number of bins for the histogram
     :type bins: int
+    :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
+    :type normalize: bool
     """
+    # y-label based on normalization
+    if normalize:
+        ylabel = 'Density'
+    else:
+        ylabel = 'Frequency'
+
     # get attribute data
     real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
     sim_data = [pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute) for sim_pc in sim_pcs]
@@ -128,18 +136,18 @@ def plot_histogram(real_pc, sim_pcs: list, attribute: str, bins: int = 100, over
         n_colours = len(sim_pcs) + 1
         colors = plt.cm.get_cmap('tab10', n_colours)
         # real world
-        ax.hist(real_data, bins=bins, color='blue', alpha=0.7, label='Real World Point Cloud', histtype='step')
+        ax.hist(real_data, bins=bins, color='blue', alpha=0.7, label='Real World Point Cloud', histtype='step', density=normalize)
         # simulated
         for i, data in enumerate(sim_data):
             color = colors(i + 1)
             # 1. draw: inner area with alpha
-            ax.hist(data, bins=bins, color=color, alpha=0.3, label=f'Simulated Point Cloud {i+1}')
+            ax.hist(data, bins=bins, color=color, alpha=0.3, label=f'Simulated Point Cloud {i+1}', density=normalize)
             # 2. draw: only edges with full color
-            ax.hist(data, bins=bins, color=color, edgecolor=color, fc="None", lw=1, histtype='step')
+            ax.hist(data, bins=bins, color=color, edgecolor=color, fc="None", lw=1, histtype='step', density=normalize)
         ax.set_axisbelow(True)
         plt.title(f'Histogram of {attribute}')
         plt.xlabel(attribute)
-        plt.ylabel('Frequency')
+        plt.ylabel(ylabel)
         # add minor ticks
         plt.minorticks_on()
         plt.legend()
@@ -166,24 +174,26 @@ def plot_histogram(real_pc, sim_pcs: list, attribute: str, bins: int = 100, over
         for data in sim_data:
             max_freq = max(max_freq, max(np.histogram(data, bins=bins)[0]))
         # ax 0 is always real pc
-        axs[0, 0].hist(real_data, bins=bins, color='blue', alpha=0.7)
+        axs[0, 0].hist(real_data, bins=bins, color='blue', alpha=0.7, density=normalize)
         axs[0, 0].set_title('Real World Point Cloud')
         axs[0, 0].set_xlabel(attribute)
-        axs[0, 0].set_ylabel('Frequency')
+        axs[0, 0].set_ylabel(ylabel)
         # add minor ticks
         axs[0, 0].minorticks_on()
-        axs[0, 0].set_ylim(0, max_freq * 1.1)
+        if not normalize:
+            axs[0, 0].set_ylim(0, max_freq * 1.1)
         axs[0, 0].set_axisbelow(True)
         for i, data in enumerate(sim_data):
             row = (i + 1) // ncols
             col = (i + 1) % ncols
-            axs[row, col].hist(data, bins=bins, color='orange', alpha=0.7)
+            axs[row, col].hist(data, bins=bins, color='orange', alpha=0.7, density=normalize)
             axs[row, col].set_title(f'Simulated Point Cloud {i+1}')
             axs[row, col].set_xlabel(attribute)
-            axs[row, col].set_ylabel('Frequency')
+            axs[row, col].set_ylabel(ylabel)
             # add minor ticks
             axs[row, col].minorticks_on()
-            axs[row, col].set_ylim(0, max_freq * 1.1)
+            if not normalize:
+                axs[row, col].set_ylim(0, max_freq * 1.1)
             axs[row, col].set_axisbelow(True)
         # hide any unused subplots
         if len(sim_pcs) + 1 < nrows * ncols:
