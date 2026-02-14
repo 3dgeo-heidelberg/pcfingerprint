@@ -91,6 +91,7 @@ class MatplotlibFigureSelection(Figure):
             '''
         
         html = f'''
+        <br><br>
         <div style="margin-bottom: 20px;">
             <div style="margin-bottom: 10px;">
                 <label for="{element_id}_dropdown" style="font-weight: bold; margin-right: 10px;"></label>
@@ -219,11 +220,13 @@ def generate_report(real_pc, sim_pcs: list,
             keys = stats_real.keys()
             df = pd.DataFrame({
                 'Statistics': keys,
-                f'Real': [stats_real[k].astype(object) for k in keys],
+                f'Real': [stats_real[k] for k in keys],
             })
+            df['Real'] = df['Real'].astype(object)
             # add a column for each simulated pc
             for i, s_stats in enumerate(stats_sim):
-                df[f'Simulated {i+1}'] = [s_stats[k].astype(object) for k in keys]
+                df[f'Simulated {i+1}'] = [s_stats[k] for k in keys]
+                df[f'Simulated {i+1}'] = df[f'Simulated {i+1}'].astype(object)
 
             # row formatting
             for k in keys:
@@ -244,13 +247,19 @@ def generate_report(real_pc, sim_pcs: list,
             if vis_backend == "matplotlib":
                 # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
                 from pcfingerprint.vis_matplotlib import plot_histogram
-                fig = plot_histogram(real_pc, sim_pcs, attribute, overlay=overlay)
-                # convert fig to base64
-                img_file = report.target_folder / Path(f"{attribute}_histogram.png")
-                fig.savefig(img_file, format='png')
-                plt.close(fig)
-                figure = MatplotlibFigure(image_name=img_file, caption=f"Histogram of {attribute}")
-                section_content['histogram'] = figure
+                imgs = {}
+                for norm in [False, True]:
+                    if norm:
+                        norm_str = "density"
+                    else:
+                        norm_str = "counts"
+                    fig = plot_histogram(real_pc, sim_pcs, attribute, overlay=overlay, normalize=norm)
+                    img_file = report.target_folder / Path(f"{attribute}_histogram_{norm_str}.png")
+                    fig.savefig(img_file, format='png')
+                    plt.close(fig)
+                    imgs[norm_str] = img_file
+                figure_selection = MatplotlibFigureSelection(image_names=list(imgs.values()), image_labels=list(imgs.keys()), caption=f"Histogram of {attribute}")
+                section_content['histogram'] = figure_selection
             else:
             # other backends not supported yet
                 raise NotImplementedError(f"Visualization backend {vis_backend} not supported for histogram plot.")
