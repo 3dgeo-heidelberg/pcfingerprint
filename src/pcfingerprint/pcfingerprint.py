@@ -57,6 +57,26 @@ class PointCloud:
             self.intensity = standardize(self.intensity)
         else:
             raise ValueError("PointCloud intensity is not set.")
+    
+    def subsample(self, indices):
+        """Subsample the point cloud to the given indices."""
+        if self.coords is not None:
+            new_pc = PointCloud()
+            new_pc.coords = self.coords[indices]
+            if self.gps_time is not None:
+                new_pc.gps_time = self.gps_time[indices]
+            if self.return_number is not None:
+                new_pc.return_number = self.return_number[indices]
+            if self.number_of_returns is not None:
+                new_pc.number_of_returns = self.number_of_returns[indices]
+            if self.intensity is not None:
+                new_pc.intensity = self.intensity[indices]
+            # geometric features
+            for feat_name, feat_data in self.geometric_features.items():
+                new_pc.geometric_features[feat_name] = feat_data[indices]
+            return new_pc
+        else:
+            raise ValueError("PointCloud coordinates are not set.")
 
 class PointCloudPair:
     def __init__(self, shift_z: bool = False, shift_gps_time: bool = False, standardize_intensity: bool = False, robust_scale_intensity: bool = False):
@@ -84,7 +104,13 @@ class PointCloudPair:
                     setattr(pc, attr, None)
 
     def load_real_world(self, filepath: str):
-        self.real_world = read_las_file(filepath)
+        # read based on file extension
+        if Path(filepath).suffix in [".las", ".laz"]:
+            self.real_world = read_las_file(filepath)
+        elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
+            self.real_world = read_xyz_file(filepath)
+        else:
+            raise ValueError(f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file.")
         self.real_world.source = filepath
         if self.shift_z:
             self.real_world.shift_z_to_zero()
@@ -100,11 +126,16 @@ class PointCloudPair:
         if self.simulated != []:
             self.drop_attributes()
     
-    def load_simulated(self, filepaths: list[str] | str, shift_z: bool = False, shift_gps_time: bool = False, robust_scale_intensity: bool = False, standardize_intensity: bool = False):
+    def load_simulated(self, filepaths: list[str] | str):
         if isinstance(filepaths, str):
             filepaths = [filepaths]
         for filepath in filepaths:
-            self.simulated.append(read_las_file(filepath))
+            if Path(filepath).suffix in [".las", ".laz"]:
+                self.simulated.append(read_las_file(filepath))
+            elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
+                self.simulated.append(read_xyz_file(filepath))
+            else:
+                raise ValueError(f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file.")
             self.simulated[-1].source = filepath
         if self.shift_z:
             for pc in self.simulated:
@@ -220,6 +251,62 @@ def read_las_file(filepath):
     pc.number_of_returns = number_of_returns
     pc.intensity = intensity
 
+    return pc
+
+
+def read_xyz_file(filepath):
+    """Create a PointCloud from a XYZ file
+
+    :param filepath:
+        The filename to read from. It is expected to be in XYZ format
+        and will be processed using numpy.
+    :type filepath: str
+    :return:
+        A PointCloud object containing the data from the file.
+    :rtype: PointCloud
+    """
+    # find delimiter by checking the first line for common delimiters
+    delimiter = None
+    with open(filepath, "r") as f:
+        first_line = f.readline()
+        for d in [",", "\t", " ", ";"]:
+            # needs to occur at least twice in the first line to be considered a delimiter
+            if first_line.count(d) >= 2:
+                delimiter = d
+                break
+
+    # check if it has a header
+    with open(filepath, "r") as f:
+        first_line = f.readline()
+        has_header = not all(c.isdigit() or c.isspace() or c == "." for c in first_line) # crude check: if first line contains non-numeric characters, assume it's a header
+    if has_header:
+        data = np.loadtxt(filepath, skiprows=1, delimiter=delimiter)
+        fields = first_line.strip().split(delimiter)
+        # make lower case
+        fields = [f.lower() for f in fields]
+        x_index = fields.index("x") if "x" in fields else 0
+        y_index = fields.index("y") if "y" in fields else 1
+        z_index = fields.index("z") if "z" in fields else 2
+    else:
+        data = np.loadtxt(filepath, delimiter=delimiter)
+        x_index, y_index, z_index = 0, 1, 2
+
+    pc = PointCloud()
+    pc.coords = data[:, [x_index, y_index, z_index]]
+    # we only read additional attributes if there is a header, otherwise we assume it's just XYZ
+    if "intensity" in fields:
+        intensity_index = fields.index("intensity")
+        pc.intensity = data[:, intensity_index]
+    if "gps_time" in fields or "time" in fields:
+        gps_time_index = fields.index("gps_time") if "gps_time" in fields else fields.index("time")
+        pc.gps_time = data[:, gps_time_index]
+    if "return_number" in fields:
+        return_number_index = fields.index("return_number")
+        pc.return_number = data[:, return_number_index].astype(int)
+    if "number_of_returns" in fields:
+        number_of_returns_index = fields.index("number_of_returns")
+        pc.number_of_returns = data[:, number_of_returns_index].astype(int)
+    
     return pc
 
 
