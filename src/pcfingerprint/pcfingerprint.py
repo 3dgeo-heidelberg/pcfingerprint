@@ -1,7 +1,7 @@
 import warnings
 import numpy as np
 import laspy
-from pcfingerprint.geometric_features import compute_point_density, compute_geom_feat
+from pcfingerprint.geometric_features import compute_geom_feat_pgeof, compute_point_density_jakteristics, compute_geom_feat_jakteristics, compute_point_density_pgeof
 from pcfingerprint.report import generate_report
 from pcfingerprint.utils import shift_to_zero, standardize, scale_robust
 from pathlib import Path
@@ -155,7 +155,7 @@ class PointCloudPair:
         if self.real_world.coords is not None:
             self.drop_attributes()
 
-    def compute_point_density(self, radius: float = 2.0, nthreads: int = -1):
+    def compute_point_density(self, radius: float = 2.0, nthreads: int = -1, backend: str = "jakteristics"):
         # Compute point density for all point clouds
 
         # check if point density already computed
@@ -163,11 +163,18 @@ class PointCloudPair:
         if self.real_world.point_density_radius == radius and self.real_world.point_density is not None:
             return  # point density already computed
         else:
-            compute_point_density(self.real_world, radius, nthreads)
-            for sim_pc in self.simulated:
-                compute_point_density(sim_pc, radius, nthreads)
+            if backend == "jakteristics":
+                compute_point_density_jakteristics(self.real_world, radius, nthreads)
+                for sim_pc in self.simulated:
+                    compute_point_density_jakteristics(sim_pc, radius, nthreads)
+            elif backend == "pgeof":
+                compute_point_density_pgeof(self.real_world, radius)
+                for sim_pc in self.simulated:
+                    compute_point_density_pgeof(sim_pc, radius)
+            else:
+                raise ValueError(f"Backend {backend} not supported.")
     
-    def compute_geometric_features(self, feature_names: list[str], radius: float = 2.0, nthreads: int = -1):
+    def compute_geometric_features(self, feature_names: list[str], radius: float = 2.0, nthreads: int = -1, backend: str = "jakteristics"):
         # Compute geometric features for all point clouds
         
         # check if features already computed
@@ -180,10 +187,18 @@ class PointCloudPair:
         if feature_names == []:
             return  # all features already computed
 
-        compute_geom_feat(self.real_world, feature_names, radius, nthreads)
-        for sim_pc in self.simulated:
-            compute_geom_feat(sim_pc, feature_names, radius, nthreads)
+        if backend == "jakteristics":
+            compute_geom_feat_jakteristics(self.real_world, feature_names, radius, nthreads)
+            for sim_pc in self.simulated:
+                compute_geom_feat_jakteristics(sim_pc, feature_names, radius, nthreads)
+        elif backend == "pgeof":
+            compute_geom_feat_pgeof(self.real_world, feature_names, radius)
+            for sim_pc in self.simulated:
+                compute_geom_feat_pgeof(sim_pc, feature_names, radius)
+        else:
+            raise ValueError(f"Backend {backend} not supported.")
     
+
     def plot_histogram(self, attribute: str, bins: int = 100, backend: str = "matplotlib", overlay: bool = False):
         if backend == "matplotlib":
             from pcfingerprint.vis_matplotlib import plot_histogram

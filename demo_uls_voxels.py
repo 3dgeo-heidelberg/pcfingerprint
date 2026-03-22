@@ -9,13 +9,14 @@ pc_pair.load_real_world(data_folder / "uls_reference.laz")
 pc_pair.load_simulated(list(data_folder.glob("uls_detailed_voxel*.laz")))
 
 # compute point density and geometric features
-pc_pair.compute_point_density(radius=0.5)
+pc_pair.compute_point_density(radius=0.5, backend="pgeof")
 print("Point density computed.")
 pc_pair.compute_geometric_features(
     feature_names=[
         "linearity"
     ],
     radius=1.0,
+    backend="pgeof"
 )
 print("Geometric features computed.")
 
