@@ -19,7 +19,7 @@ def subsample_points(pc, max_n_points: int = 500_000):
     num_points = pc.coords.shape[0]
     if num_points > max_n_points:
         indices = np.random.choice(num_points, max_n_points, replace=False)
-        pc = pc.get_subset(indices)
+        pc = pc.subsample(indices)
         print(f"Subsampled from {num_points} to {pc.coords.shape[0]} points for visualization.")
     else:
         indices = np.arange(num_points)
@@ -65,9 +65,7 @@ def plot_3d_scatter(real_pc, sim_pcs: list, attribute: str = None, max_n_points:
 
         # get attribute data
         real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
-        real_data = real_data[subsample_indices]
         sim_data = [pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute) for sim_pc in sim_pcs]
-        sim_data = [data[sim_subsample_indices[i]] for i, data in enumerate(sim_data)]
 
         # determine plot grid based on inputs
         if len(sim_pcs) == 1:

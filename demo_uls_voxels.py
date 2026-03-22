@@ -2,9 +2,11 @@ import pcfingerprint
 from pathlib import Path
 
 # load data
+data_folder = Path("data/uls_tree_voxels")
+report_folder = Path("output_report_uls_tree_voxels")
 pc_pair = pcfingerprint.PointCloudPair(standardize_intensity=False, shift_z=True)
-pc_pair.load_real_world("data/uls_reference.laz")
-pc_pair.load_simulated(list(Path("data").glob("uls_detailed_voxel*.laz")))
+pc_pair.load_real_world(data_folder / "uls_reference.laz")
+pc_pair.load_simulated(list(data_folder.glob("uls_detailed_voxel*.laz")))
 
 # compute point density and geometric features
 pc_pair.compute_point_density(radius=0.5)
@@ -19,7 +21,7 @@ print("Geometric features computed.")
 
 # generate project report
 pc_pair.generate_report(
-    output_path="output_report/test_report.html",
+    output_path=report_folder / "test_report.html",
     attribute_list=["z", "point_density", "linearity", "intensity"],
     summary_statistics=True,
     return_number_metrics=True,
@@ -29,6 +31,6 @@ pc_pair.generate_report(
 print("Report generated.")
 
 # write point clouds to disk
-pc_outfolder = "output_pcs/"
+pc_outfolder = Path("output_pcs/")
 pc_pair.write_point_clouds(pc_outfolder)
 print(f"Point clouds written to {pc_outfolder}")
