@@ -5,6 +5,8 @@ from pcfingerprint.geometric_features import compute_geom_feat_pgeof, compute_po
 from pcfingerprint.report import generate_report
 from pcfingerprint.utils import shift_to_zero, standardize, scale_robust
 from pathlib import Path
+from pgeof import EFeatureID
+import jakteristics 
 
 
 class PointCloud:
@@ -155,48 +157,60 @@ class PointCloudPair:
         if self.real_world.coords is not None:
             self.drop_attributes()
 
-    def compute_point_density(self, radius: float = 2.0, nthreads: int = -1, backend: str = "jakteristics"):
+    def compute_point_density(self, radius: float = 2.0, max_knn: int = 50_000, backend: str = "jakteristics"):
         # Compute point density for all point clouds
 
         # check if point density already computed
         radius = np.round(radius, 3)
-        if self.real_world.point_density_radius == radius and self.real_world.point_density is not None:
+        if self.real_world.point_density_radius == radius and self.real_world.point_density is not None and all(sim_pc.point_density_radius == radius and sim_pc.point_density is not None for sim_pc in self.simulated):
             return  # point density already computed
         else:
             if backend == "jakteristics":
-                compute_point_density_jakteristics(self.real_world, radius, nthreads)
+                compute_point_density_jakteristics(self.real_world, radius, max_knn)
                 for sim_pc in self.simulated:
-                    compute_point_density_jakteristics(sim_pc, radius, nthreads)
+                    compute_point_density_jakteristics(sim_pc, radius, max_knn)
             elif backend == "pgeof":
-                compute_point_density_pgeof(self.real_world, radius)
+                compute_point_density_pgeof(self.real_world, radius, max_knn)
                 for sim_pc in self.simulated:
-                    compute_point_density_pgeof(sim_pc, radius)
+                    compute_point_density_pgeof(sim_pc, radius, max_knn)
             else:
                 raise ValueError(f"Backend {backend} not supported.")
     
-    def compute_geometric_features(self, feature_names: list[str], radius: float = 2.0, nthreads: int = -1, backend: str = "jakteristics"):
+    def compute_geometric_features(self, feature_names: list[str], radius: float = 2.0, max_knn: int = 50_000, backend: str = "pgeof"):
         # Compute geometric features for all point clouds
         
         # check if features already computed
         for f in feature_names:
             radius = np.round(radius, 3)
             f_with_radius = f + f"_r{radius}"
-            if f_with_radius in self.real_world.geometric_features:
+            if f_with_radius in self.real_world.geometric_features and all(f_with_radius in sim_pc.geometric_features for sim_pc in self.simulated):
                 # drop from feature_names
                 feature_names.remove(f)
         if feature_names == []:
             return  # all features already computed
 
-        if backend == "jakteristics":
-            compute_geom_feat_jakteristics(self.real_world, feature_names, radius, nthreads)
-            for sim_pc in self.simulated:
-                compute_geom_feat_jakteristics(sim_pc, feature_names, radius, nthreads)
-        elif backend == "pgeof":
-            compute_geom_feat_pgeof(self.real_world, feature_names, radius)
-            for sim_pc in self.simulated:
-                compute_geom_feat_pgeof(sim_pc, feature_names, radius)
+        # check if all feature names available for the backend, if not, try fallback on other backend before raising error
+        if backend == "pgeof":
+            pgeof_features = [f for f in feature_names if f in EFeatureID._member_names_]
+            jakteristics_features = [f for f in feature_names if (f in jakteristics.constants.FEATURE_NAMES and f not in pgeof_features)]
+            if jakteristics_features != []:
+                warnings.warn(f"Features {jakteristics_features} not available in pgeof. Computing them using jakteristics as fallback.", UserWarning)
+        elif backend == "jakteristics":
+            jakteristics_features = [f for f in feature_names if f in jakteristics.constants.FEATURE_NAMES]
+            pgeof_features = [f for f in feature_names if (f in EFeatureID._member_names_ and f not in jakteristics_features)]
+            if pgeof_features != []:
+                warnings.warn(f"Features {pgeof_features} not available in jakteristics. Computing them using pgeof as fallback.", UserWarning)
         else:
             raise ValueError(f"Backend {backend} not supported.")
+
+        if len(jakteristics_features) > 0:
+            compute_geom_feat_jakteristics(self.real_world, jakteristics_features, radius, max_knn)
+            for sim_pc in self.simulated:
+                compute_geom_feat_jakteristics(sim_pc, jakteristics_features, radius, max_knn)
+        if len(pgeof_features) > 0:
+            compute_geom_feat_pgeof(self.real_world, pgeof_features, radius, max_knn)
+            for sim_pc in self.simulated:
+                compute_geom_feat_pgeof(sim_pc, pgeof_features, radius, max_knn)
     
 
     def plot_histogram(self, attribute: str, bins: int = 100, backend: str = "matplotlib", overlay: bool = False):
