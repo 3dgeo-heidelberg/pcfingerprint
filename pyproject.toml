@@ -27,5 +27,6 @@ dependencies = [
     "plotly",
     "pandas",
     "jinja2",
-    "numerous-html-report-generator"
+    "numerous-html-report-generator",
+    "pgeof"
 ]
