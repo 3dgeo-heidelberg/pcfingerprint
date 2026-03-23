@@ -191,7 +191,8 @@ class PointCloudPair:
 
         # check if all feature names available for the backend, if not, try fallback on other backend before raising error
         if backend == "pgeof":
-            pgeof_features = [f for f in feature_names if f in EFeatureID._member_names_]
+            pgeof_features_lower = [f.lower() for f in EFeatureID._member_names_]
+            pgeof_features = [f for f in feature_names if f in pgeof_features_lower]
             jakteristics_features = [f for f in feature_names if (f in jakteristics.constants.FEATURE_NAMES and f not in pgeof_features)]
             if jakteristics_features != []:
                 warnings.warn(f"Features {jakteristics_features} not available in pgeof. Computing them using jakteristics as fallback.", UserWarning)
