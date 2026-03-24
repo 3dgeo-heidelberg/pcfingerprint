@@ -19,11 +19,7 @@ print(f"Point density computed in {time.time() - pdens_start_time:.2f} seconds."
 
 geom_start_time = time.time()
 pc_pair.compute_geometric_features(
-    feature_names=[
-        "linearity"
-    ],
-    radius=1.0,
-    backend="pgeof"
+    feature_names=["linearity"], radius=1.0, backend="pgeof"
 )
 print(f"Geometric features computed in {time.time() - geom_start_time:.2f} seconds.")
 
@@ -34,8 +30,11 @@ pc_pair.generate_report(
     attribute_list=["z", "point_density", "linearity", "intensity"],
     summary_statistics=True,
     return_number_metrics=True,
-    visualizations=["histogram_overlay", "3d_scatter"],  # "histogram" will instead plot histograms side by side
-    vis_backend="matplotlib"
+    visualizations=[
+        "histogram_overlay",
+        "3d_scatter",
+    ],  # "histogram" will instead plot histograms side by side
+    vis_backend="matplotlib",
 )
 print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
 

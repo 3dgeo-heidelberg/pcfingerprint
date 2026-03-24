@@ -1,11 +1,14 @@
 """
 Module for calculating geometric features on point clouds.
 """
+
 import numpy as np
 import warnings
 
 
-def compute_point_density_jakteristics(point_cloud, radius: float, max_knn: int = 50_000) -> None:
+def compute_point_density_jakteristics(
+    point_cloud, radius: float, max_knn: int = 50_000
+) -> None:
     """
     Compute (volume) point density using Jakteristics.
 
@@ -22,17 +25,23 @@ def compute_point_density_jakteristics(point_cloud, radius: float, max_knn: int 
     radius = np.round(radius, 3)
     if not f"number_of_neighbors_r{radius}" in point_cloud.geometric_features:
         feats = jakteristics.compute_features(
-        point_cloud.coords,
-        search_radius=radius,
-        max_k_neighbors=max_knn,
-        feature_names=["number_of_neighbors"]
+            point_cloud.coords,
+            search_radius=radius,
+            max_k_neighbors=max_knn,
+            feature_names=["number_of_neighbors"],
         )
-        point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] = feats.reshape(-1)
-    point_cloud.point_density = point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] / (4/3 * np.pi * radius**3)
+        point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] = (
+            feats.reshape(-1)
+        )
+    point_cloud.point_density = point_cloud.geometric_features[
+        f"number_of_neighbors_r{radius}"
+    ] / (4 / 3 * np.pi * radius**3)
     point_cloud.point_density_radius = radius
 
 
-def compute_point_density_pgeof(point_cloud, radius: float, max_knn: int = 50_000) -> None:
+def compute_point_density_pgeof(
+    point_cloud, radius: float, max_knn: int = 50_000
+) -> None:
     """
     Compute (volume) point density using PGEOF.
 
@@ -55,19 +64,23 @@ def compute_point_density_pgeof(point_cloud, radius: float, max_knn: int = 50_00
             point_cloud.coords.astype(np.float32),
             point_cloud.coords.astype(np.float32),
             search_radius=radius,
-            max_knn=max_knn
+            max_knn=max_knn,
         )
         # number of neighbors is the number of valid indices returned for each point - invalid indices have value -1
         num_neigh = (indices != -1).sum(axis=1)
         point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] = num_neigh
-    point_cloud.point_density = point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] / (4/3 * np.pi * radius**3)
+    point_cloud.point_density = point_cloud.geometric_features[
+        f"number_of_neighbors_r{radius}"
+    ] / (4 / 3 * np.pi * radius**3)
     point_cloud.point_density_radius = radius
 
 
-def compute_geom_feat_jakteristics(point_cloud, feature_names: list[str], radius: float, max_knn: int = 50_000) -> None:
+def compute_geom_feat_jakteristics(
+    point_cloud, feature_names: list[str], radius: float, max_knn: int = 50_000
+) -> None:
     """
     Compute geometric features using Jakteristics.
-    
+
     :param point_cloud: PointCloud object
     :type point_cloud: PointCloud
     :param feature_names: List of feature names to compute
@@ -86,7 +99,7 @@ def compute_geom_feat_jakteristics(point_cloud, feature_names: list[str], radius
         point_cloud.coords,
         search_radius=radius,
         feature_names=feature_names,
-        max_k_neighbors=max_knn
+        max_k_neighbors=max_knn,
     )
     if len(feature_names) == 1:
         feats = [feats]
@@ -94,10 +107,12 @@ def compute_geom_feat_jakteristics(point_cloud, feature_names: list[str], radius
         point_cloud.geometric_features[f"{f_name}_r{radius}"] = feats[i].reshape(-1)
 
 
-def compute_geom_feat_pgeof(point_cloud, feature_names: list[str], radius: float, max_knn: int = 50_000) -> None:
+def compute_geom_feat_pgeof(
+    point_cloud, feature_names: list[str], radius: float, max_knn: int = 50_000
+) -> None:
     """
     Compute geometric features using PGEOF.
-    
+
     :param point_cloud: PointCloud object
     :type point_cloud: PointCloud
     :param feature_names: List of feature names to compute
@@ -122,17 +137,21 @@ def compute_geom_feat_pgeof(point_cloud, feature_names: list[str], radius: float
         "normalz": EFeatureID.Normal_z,
         "curvature": EFeatureID.Curvature,
         "verticality": EFeatureID.Verticality,
-        "eigentropy": EFeatureID.Eigentropy
+        "eigentropy": EFeatureID.Eigentropy,
     }
 
     sel_feats = [feature_map.get(f_name) for f_name in feature_names]
 
     if None in sel_feats:
-        warnings.warn(f"The following feature names are not recognized: {[f_name for f_name, f in zip(feature_names, sel_feats) if f is None]}. Available features: {list(feature_map.keys())}.")
+        warnings.warn(
+            f"The following feature names are not recognized: {[f_name for f_name, f in zip(feature_names, sel_feats) if f is None]}. Available features: {list(feature_map.keys())}."
+        )
         sel_feats = [f for f in sel_feats if f is not None]
-    
+
     if len(sel_feats) == 0:
-        raise ValueError(f"No valid feature names provided. Available features: {list(feature_map.keys())}. Provided feature names: {feature_names}")
+        raise ValueError(
+            f"No valid feature names provided. Available features: {list(feature_map.keys())}. Provided feature names: {feature_names}"
+        )
 
     # limit radius to 3 decimal places
     radius = np.round(radius, 3)

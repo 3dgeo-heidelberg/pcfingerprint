@@ -1,65 +1,72 @@
 import warnings
 import numpy as np
 import laspy
-from pcfingerprint.geometric_features import compute_geom_feat_pgeof, compute_point_density_jakteristics, compute_geom_feat_jakteristics, compute_point_density_pgeof
+from pcfingerprint.geometric_features import (
+    compute_geom_feat_pgeof,
+    compute_point_density_jakteristics,
+    compute_geom_feat_jakteristics,
+    compute_point_density_pgeof,
+)
 from pcfingerprint.report import generate_report
 from pcfingerprint.utils import shift_to_zero, standardize, scale_robust
 from pathlib import Path
 from pgeof import EFeatureID
-import jakteristics 
+import jakteristics
 
 
 class PointCloud:
-    def __init__(self, 
+    def __init__(
+        self,
         coords=None,
         gps_time=None,
         return_number=None,
         number_of_returns=None,
-        intensity=None):
-            self.coords = coords  # Nx3 array of point coordinates
-            self.source = None  # source file path
-            self.kd_tree = None  # KDTree for spatial queries
-            self.gps_time = gps_time  # float array
-            self.return_number = return_number  # int array
-            self.number_of_returns = number_of_returns  # int array
-            self.intensity = intensity  # int array
-            self.point_density = None  # float array
-            self.point_density_radius = None  # radius used for point density
-            self.normals = None  # Nx3 array of normal vectors
-            self.normal_radius = None  # radius used for normal estimation
-            self.geometric_features = {}  # dict of feature name to float array
-            self.voxel_size = None  # size of voxels (float) 
-            self.voxel_indices = None  # Nx3 array of voxel indices (int)
-            self.is_outlier = None  # boolean array
-    
+        intensity=None,
+    ):
+        self.coords = coords  # Nx3 array of point coordinates
+        self.source = None  # source file path
+        self.kd_tree = None  # KDTree for spatial queries
+        self.gps_time = gps_time  # float array
+        self.return_number = return_number  # int array
+        self.number_of_returns = number_of_returns  # int array
+        self.intensity = intensity  # int array
+        self.point_density = None  # float array
+        self.point_density_radius = None  # radius used for point density
+        self.normals = None  # Nx3 array of normal vectors
+        self.normal_radius = None  # radius used for normal estimation
+        self.geometric_features = {}  # dict of feature name to float array
+        self.voxel_size = None  # size of voxels (float)
+        self.voxel_indices = None  # Nx3 array of voxel indices (int)
+        self.is_outlier = None  # boolean array
+
     def shift_z_to_zero(self):
         """Shift the z-coordinates so that the minimum z-value is zero."""
         if self.coords is not None:
             self.coords[:, 2] = shift_to_zero(self.coords[:, 2])
         else:
             raise ValueError("PointCloud coordinates are not set.")
-    
+
     def shift_gpstime_to_zero(self):
         """Shift the gps_time so that the minimum gps_time is zero."""
         if self.gps_time is not None:
             self.gps_time = shift_to_zero(self.gps_time)
         else:
             raise ValueError("PointCloud gps_time is not set.")
-    
+
     def robust_scale_intensity(self):
         """Perform robust scaling on intensity values."""
         if self.intensity is not None:
             self.intensity = scale_robust(self.intensity)
         else:
             raise ValueError("PointCloud intensity is not set.")
-    
+
     def standardize_intensity(self):
         """Standardize intensity values (z-score normalization)."""
         if self.intensity is not None:
             self.intensity = standardize(self.intensity)
         else:
             raise ValueError("PointCloud intensity is not set.")
-    
+
     def subsample(self, indices):
         """Subsample the point cloud to the given indices."""
         if self.coords is not None:
@@ -80,8 +87,15 @@ class PointCloud:
         else:
             raise ValueError("PointCloud coordinates are not set.")
 
+
 class PointCloudPair:
-    def __init__(self, shift_z: bool = False, shift_gps_time: bool = False, standardize_intensity: bool = False, robust_scale_intensity: bool = False):
+    def __init__(
+        self,
+        shift_z: bool = False,
+        shift_gps_time: bool = False,
+        standardize_intensity: bool = False,
+        robust_scale_intensity: bool = False,
+    ):
         self.real_world = PointCloud()
         # simulated is a list of PointClouds (minimum 1)
         self.simulated = []
@@ -91,7 +105,6 @@ class PointCloudPair:
         self.standardize_intensity = standardize_intensity
         self.robust_scale_intensity = robust_scale_intensity
 
-    
     def drop_attributes(self):
         # drop attributes that are not present in all point clouds
         all_pcs = [self.real_world] + self.simulated
@@ -112,14 +125,18 @@ class PointCloudPair:
         elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
             self.real_world = read_xyz_file(filepath)
         else:
-            raise ValueError(f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file.")
+            raise ValueError(
+                f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
+            )
         self.real_world.source = filepath
         if self.shift_z:
             self.real_world.shift_z_to_zero()
         if self.shift_gps_time:
             self.real_world.shift_gpstime_to_zero()
         if self.robust_scale_intensity and self.standardize_intensity:
-            raise ValueError("Cannot apply both robust scaling and standardization to intensity.")
+            raise ValueError(
+                "Cannot apply both robust scaling and standardization to intensity."
+            )
         if self.robust_scale_intensity:
             self.real_world.robust_scale_intensity()
         if self.standardize_intensity:
@@ -127,7 +144,7 @@ class PointCloudPair:
         # if simulated point cloud is already loaded, drop non-overlapping attributes
         if self.simulated != []:
             self.drop_attributes()
-    
+
     def load_simulated(self, filepaths: list[str] | str):
         if isinstance(filepaths, str):
             filepaths = [filepaths]
@@ -137,7 +154,9 @@ class PointCloudPair:
             elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
                 self.simulated.append(read_xyz_file(filepath))
             else:
-                raise ValueError(f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file.")
+                raise ValueError(
+                    f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
+                )
             self.simulated[-1].source = filepath
         if self.shift_z:
             for pc in self.simulated:
@@ -146,7 +165,9 @@ class PointCloudPair:
             for pc in self.simulated:
                 pc.shift_gpstime_to_zero()
         if self.robust_scale_intensity and self.standardize_intensity:
-            raise ValueError("Cannot apply both robust scaling and standardization to intensity.")
+            raise ValueError(
+                "Cannot apply both robust scaling and standardization to intensity."
+            )
         if self.standardize_intensity:
             for pc in self.simulated:
                 pc.standardize_intensity()
@@ -157,12 +178,22 @@ class PointCloudPair:
         if self.real_world.coords is not None:
             self.drop_attributes()
 
-    def compute_point_density(self, radius: float = 2.0, max_knn: int = 50_000, backend: str = "jakteristics"):
+    def compute_point_density(
+        self, radius: float = 2.0, max_knn: int = 50_000, backend: str = "jakteristics"
+    ):
         # Compute point density for all point clouds
 
         # check if point density already computed
         radius = np.round(radius, 3)
-        if self.real_world.point_density_radius == radius and self.real_world.point_density is not None and all(sim_pc.point_density_radius == radius and sim_pc.point_density is not None for sim_pc in self.simulated):
+        if (
+            self.real_world.point_density_radius == radius
+            and self.real_world.point_density is not None
+            and all(
+                sim_pc.point_density_radius == radius
+                and sim_pc.point_density is not None
+                for sim_pc in self.simulated
+            )
+        ):
             return  # point density already computed
         else:
             if backend == "jakteristics":
@@ -175,15 +206,23 @@ class PointCloudPair:
                     compute_point_density_pgeof(sim_pc, radius, max_knn)
             else:
                 raise ValueError(f"Backend {backend} not supported.")
-    
-    def compute_geometric_features(self, feature_names: list[str], radius: float = 2.0, max_knn: int = 50_000, backend: str = "pgeof"):
+
+    def compute_geometric_features(
+        self,
+        feature_names: list[str],
+        radius: float = 2.0,
+        max_knn: int = 50_000,
+        backend: str = "pgeof",
+    ):
         # Compute geometric features for all point clouds
-        
+
         # check if features already computed
         for f in feature_names:
             radius = np.round(radius, 3)
             f_with_radius = f + f"_r{radius}"
-            if f_with_radius in self.real_world.geometric_features and all(f_with_radius in sim_pc.geometric_features for sim_pc in self.simulated):
+            if f_with_radius in self.real_world.geometric_features and all(
+                f_with_radius in sim_pc.geometric_features for sim_pc in self.simulated
+            ):
                 # drop from feature_names
                 feature_names.remove(f)
         if feature_names == []:
@@ -193,51 +232,95 @@ class PointCloudPair:
         if backend == "pgeof":
             pgeof_features_lower = [f.lower() for f in EFeatureID._member_names_]
             pgeof_features = [f for f in feature_names if f in pgeof_features_lower]
-            jakteristics_features = [f for f in feature_names if (f in jakteristics.constants.FEATURE_NAMES and f not in pgeof_features)]
+            jakteristics_features = [
+                f
+                for f in feature_names
+                if (
+                    f in jakteristics.constants.FEATURE_NAMES
+                    and f not in pgeof_features
+                )
+            ]
             if jakteristics_features != []:
-                warnings.warn(f"Features {jakteristics_features} not available in pgeof. Computing them using jakteristics as fallback.", UserWarning)
+                warnings.warn(
+                    f"Features {jakteristics_features} not available in pgeof. Computing them using jakteristics as fallback.",
+                    UserWarning,
+                )
         elif backend == "jakteristics":
-            jakteristics_features = [f for f in feature_names if f in jakteristics.constants.FEATURE_NAMES]
-            pgeof_features = [f for f in feature_names if (f in EFeatureID._member_names_ and f not in jakteristics_features)]
+            jakteristics_features = [
+                f for f in feature_names if f in jakteristics.constants.FEATURE_NAMES
+            ]
+            pgeof_features = [
+                f
+                for f in feature_names
+                if (f in EFeatureID._member_names_ and f not in jakteristics_features)
+            ]
             if pgeof_features != []:
-                warnings.warn(f"Features {pgeof_features} not available in jakteristics. Computing them using pgeof as fallback.", UserWarning)
+                warnings.warn(
+                    f"Features {pgeof_features} not available in jakteristics. Computing them using pgeof as fallback.",
+                    UserWarning,
+                )
         else:
             raise ValueError(f"Backend {backend} not supported.")
 
         if len(jakteristics_features) > 0:
-            compute_geom_feat_jakteristics(self.real_world, jakteristics_features, radius, max_knn)
+            compute_geom_feat_jakteristics(
+                self.real_world, jakteristics_features, radius, max_knn
+            )
             for sim_pc in self.simulated:
-                compute_geom_feat_jakteristics(sim_pc, jakteristics_features, radius, max_knn)
+                compute_geom_feat_jakteristics(
+                    sim_pc, jakteristics_features, radius, max_knn
+                )
         if len(pgeof_features) > 0:
             compute_geom_feat_pgeof(self.real_world, pgeof_features, radius, max_knn)
             for sim_pc in self.simulated:
                 compute_geom_feat_pgeof(sim_pc, pgeof_features, radius, max_knn)
-    
 
-    def plot_histogram(self, attribute: str, bins: int = 100, backend: str = "matplotlib", overlay: bool = False):
+    def plot_histogram(
+        self,
+        attribute: str,
+        bins: int = 100,
+        backend: str = "matplotlib",
+        overlay: bool = False,
+    ):
         if backend == "matplotlib":
             from pcfingerprint.vis_matplotlib import plot_histogram
-            fig = plot_histogram(self.real_world, self.simulated[0], attribute, bins, overlay=overlay)
+
+            fig = plot_histogram(
+                self.real_world, self.simulated[0], attribute, bins, overlay=overlay
+            )
         elif backend == "plotly":
             pass
         else:
             raise ValueError(f"Backend {backend} not supported.")
         return fig
-    
-    def generate_report(self, 
-                        output_path: str, 
-                        attribute_list: list[str], 
-                        summary_statistics: bool = True, 
-                        return_number_metrics: bool = False,
-                        visualizations: list[str] = ["histogram_overlay"],
-                        vis_backend: str = "matplotlib"):
+
+    def generate_report(
+        self,
+        output_path: str,
+        attribute_list: list[str],
+        summary_statistics: bool = True,
+        return_number_metrics: bool = False,
+        visualizations: list[str] = ["histogram_overlay"],
+        vis_backend: str = "matplotlib",
+    ):
         # generate html report with histograms for each attribute in attribute_list
         if len(self.simulated) > 5:
-            warnings.warn("More than 5 simulated point clouds provided. Report will only consider the first five.")
+            warnings.warn(
+                "More than 5 simulated point clouds provided. Report will only consider the first five."
+            )
             simulated = self.simulated[:5]
         else:
             simulated = self.simulated
-        generate_report(self.real_world, simulated, output_path, attribute_list, summary_statistics=summary_statistics, return_number_metrics=return_number_metrics, visualizations=visualizations, vis_backend=vis_backend)
+        generate_report(
+            self.real_world,
+            simulated,
+            output_path,
+            attribute_list,
+            summary_statistics=summary_statistics,
+            return_number_metrics=return_number_metrics,
+            visualizations=visualizations,
+            vis_backend=vis_backend,
+        )
 
     def write_point_clouds(self, output_folder: str):
         # write real world and simulated point clouds (with new attributes) to output folder
@@ -269,9 +352,19 @@ def read_las_file(filepath):
 
     # get gpstime, return number, number of returns, intensity if available
     gps_time = las.gps_time if "gps_time" in las.point_format.dimension_names else None
-    return_number = las.return_number if "return_number" in las.point_format.dimension_names else None
-    number_of_returns = las.number_of_returns if "number_of_returns" in las.point_format.dimension_names else None
-    intensity = las.intensity if "intensity" in las.point_format.dimension_names else None
+    return_number = (
+        las.return_number
+        if "return_number" in las.point_format.dimension_names
+        else None
+    )
+    number_of_returns = (
+        las.number_of_returns
+        if "number_of_returns" in las.point_format.dimension_names
+        else None
+    )
+    intensity = (
+        las.intensity if "intensity" in las.point_format.dimension_names else None
+    )
 
     # create new PointCloud and assign attributes
     pc = PointCloud()
@@ -308,7 +401,9 @@ def read_xyz_file(filepath):
     # check if it has a header
     with open(filepath, "r") as f:
         first_line = f.readline()
-        has_header = not all(c.isdigit() or c.isspace() or c == "." for c in first_line) # crude check: if first line contains non-numeric characters, assume it's a header
+        has_header = not all(
+            c.isdigit() or c.isspace() or c == "." for c in first_line
+        )  # crude check: if first line contains non-numeric characters, assume it's a header
     if has_header:
         data = np.loadtxt(filepath, skiprows=1, delimiter=delimiter)
         fields = first_line.strip().split(delimiter)
@@ -328,7 +423,9 @@ def read_xyz_file(filepath):
         intensity_index = fields.index("intensity")
         pc.intensity = data[:, intensity_index]
     if "gps_time" in fields or "time" in fields:
-        gps_time_index = fields.index("gps_time") if "gps_time" in fields else fields.index("time")
+        gps_time_index = (
+            fields.index("gps_time") if "gps_time" in fields else fields.index("time")
+        )
         pc.gps_time = data[:, gps_time_index]
     if "return_number" in fields:
         return_number_index = fields.index("return_number")
@@ -336,22 +433,22 @@ def read_xyz_file(filepath):
     if "number_of_returns" in fields:
         number_of_returns_index = fields.index("number_of_returns")
         pc.number_of_returns = data[:, number_of_returns_index].astype(int)
-    
+
     return pc
 
 
 def write_las(
-        pc: PointCloud,
-        outfile: str,
-        las_point_format=7,
-        las_version="1.4",
-        las_scales=None,
-        las_offset=None,
-    ):
+    pc: PointCloud,
+    outfile: str,
+    las_point_format=7,
+    las_version="1.4",
+    las_scales=None,
+    las_offset=None,
+):
     """
     Function to write a PointCloud object to a LAS/LAZ file with additional attributes.
     Modified after vapc: https://github.com/3dgeo-heidelberg/vapc/blob/main/src/vapc/datahandler.py#L97-L187
-    
+
     :param pc: PointCloud object to write
     :type pc: PointCloud
     :param outfile: Output file path
@@ -367,7 +464,7 @@ def write_las(
         las_scales = [0.00025, 0.00025, 0.00025]
     if las_offset is None:
         las_offset = np.min(pc.coords, axis=0)
-    
+
     new_header = laspy.LasHeader(point_format=las_point_format, version=las_version)
     new_header.offsets = las_offset
     new_header.scales = las_scales
@@ -403,33 +500,33 @@ def write_las(
 
 
 def add_dimension_to_laz(las_file, array, name):
-        """
-        Adds a new attribute dimension to the LAZ file.
+    """
+    Adds a new attribute dimension to the LAZ file.
 
-        Writes a new attribute to the LAZ file by adding an extra dimension with the specified name and data type.
+    Writes a new attribute to the LAZ file by adding an extra dimension with the specified name and data type.
 
-        :param array: The data array to be added as a new attribute.
-        :param name: The name of the new attribute.
-        :type array: np.ndarray
-        :type name: str
+    :param array: The data array to be added as a new attribute.
+    :param name: The name of the new attribute.
+    :type array: np.ndarray
+    :type name: str
 
-        :return: None
-        :rtype: None
-        """
-        las_file.add_extra_dim(
-            laspy.ExtraBytesParams(name=name, type=array.dtype, description=name)
-        )
-        las_file[name] = array
+    :return: None
+    :rtype: None
+    """
+    las_file.add_extra_dim(
+        laspy.ExtraBytesParams(name=name, type=array.dtype, description=name)
+    )
+    las_file[name] = array
 
 
 def get_attribute_data(pc: PointCloud, attribute: str):
     """
     Function to get the data for a given attribute from a PointCloud.
-    The attribute may be 
+    The attribute may be
     - a direct attribute of the PointCloud object,
     - one of the coordinate axes ("x", "y", "z"),
     - a geometric feature (e.g. "linearity_0.2")
-    
+
     :param pc: PointCloud object
     :type pc: PointCloud
     :param attribute: Name of the attribute to retreive
@@ -447,8 +544,10 @@ def get_attribute_data(pc: PointCloud, attribute: str):
     elif any(attribute in key for key in pc.geometric_features.keys()):
         geom_feats = [key for key in pc.geometric_features.keys() if attribute in key]
         if len(geom_feats) > 1:
-            warnings.warn(f"Multiple geometric features match attribute {attribute}: {geom_feats}. Using first match.\nConsider using full feature name with radius suffix.\n"
-                          f"Available geometric features: {list(pc.geometric_features.keys())}")
+            warnings.warn(
+                f"Multiple geometric features match attribute {attribute}: {geom_feats}. Using first match.\nConsider using full feature name with radius suffix.\n"
+                f"Available geometric features: {list(pc.geometric_features.keys())}"
+            )
         data = pc.geometric_features[geom_feats[0]]
     else:
         raise ValueError(f"Attribute {attribute} not found in point clouds.")

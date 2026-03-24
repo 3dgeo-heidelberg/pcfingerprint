@@ -13,8 +13,11 @@ pc_pair.generate_report(
     output_path=report_folder / "test_report.html",
     attribute_list=["gps_time"],
     summary_statistics=True,
-    visualizations=["histogram_overlay", "3d_scatter"],  # "histogram" will instead plot histograms side by side
-    vis_backend="matplotlib"
+    visualizations=[
+        "histogram_overlay",
+        "3d_scatter",
+    ],  # "histogram" will instead plot histograms side by side
+    vis_backend="matplotlib",
 )
 print("Report generated.")
 
