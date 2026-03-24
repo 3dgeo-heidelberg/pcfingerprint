@@ -2,9 +2,11 @@ import numpy as np
 import pandas as pd
 
 
-def compute_statistics(data: np.ndarray, location_stats=True, spread_stats=True, shape_stats=False) -> dict:
+def compute_statistics(
+    data: np.ndarray, location_stats=True, spread_stats=True, shape_stats=False
+) -> dict:
     """Compute summary statistics for a given data array
-    
+
     :param data: Input data array
     :type data: np.ndarray
     :param location_stats: Whether to compute location statistics (mean, median, mode)
@@ -13,7 +15,7 @@ def compute_statistics(data: np.ndarray, location_stats=True, spread_stats=True,
     :type spread_stats: bool
     :param shape_stats: Whether to compute shape statistics (skewness, kurtosis)
     :type shape_stats: bool
-    
+
     :return: Dictionary of computed statistics
     :rtype: dict
     """
@@ -21,10 +23,10 @@ def compute_statistics(data: np.ndarray, location_stats=True, spread_stats=True,
     stats = {}
     if location_stats:
         location_stats = {
-            'mean': mean,
-            'median': np.nanmedian(data),
+            "mean": mean,
+            "median": np.nanmedian(data),
             # only compute mode if data is type int
-            'mode': int(pd.Series(data).mode()[0]) if data.dtype == int else None,
+            "mode": int(pd.Series(data).mode()[0]) if data.dtype == int else None,
         }
         stats.update(location_stats)
     if spread_stats:
@@ -32,19 +34,19 @@ def compute_statistics(data: np.ndarray, location_stats=True, spread_stats=True,
         min = np.nanmin(data)
         max = np.nanmax(data)
         spread_stats = {
-            'std dev': std,
-            'variance': np.nanvar(data),
-            'min': min,
-            'max': max,
-            'range': max - min,
-            'iqr': np.nanpercentile(data, 75) - np.nanpercentile(data, 25),
-            'cov': std / mean if mean != 0 else np.nan,
+            "std dev": std,
+            "variance": np.nanvar(data),
+            "min": min,
+            "max": max,
+            "range": max - min,
+            "iqr": np.nanpercentile(data, 75) - np.nanpercentile(data, 25),
+            "cov": std / mean if mean != 0 else np.nan,
         }
         stats.update(spread_stats)
     if shape_stats:
         shape_stats = {
-            'skewness': pd.Series(data).skew(),
-            'kurtosis': pd.Series(data).kurtosis()
+            "skewness": pd.Series(data).skew(),
+            "kurtosis": pd.Series(data).kurtosis(),
         }
         stats.update(shape_stats)
     return stats
@@ -65,27 +67,31 @@ def compute_return_number_metrics(return_number, number_of_returns) -> dict:
     :return: Dictionary of return number metrics
     :rtype: dict
     """
-    assert return_number.shape == number_of_returns.shape, "return_number and number_of_returns must have the same shape"
+    assert (
+        return_number.shape == number_of_returns.shape
+    ), "return_number and number_of_returns must have the same shape"
     # convert to numpy arrays if not already
     return_number = np.array(return_number)
     number_of_returns = np.array(number_of_returns)
     total_points = int(return_number.shape[0])
     first_returns = int(np.sum(return_number == 1))
     last_returns = int(np.sum(return_number == number_of_returns))
-    intermediate_returns = int(np.sum((return_number > 1) & (return_number < number_of_returns)))
+    intermediate_returns = int(
+        np.sum((return_number > 1) & (return_number < number_of_returns))
+    )
     multiple_returns = int(np.sum(number_of_returns > 1))
     single_returns = int(np.sum(number_of_returns == 1))
     metrics = {
-        'number of first returns': first_returns,
-        'number of intermediate returns': intermediate_returns,
-        'number of last returns': last_returns,
-        'number of single returns': single_returns,
-        'number of multiple returns': multiple_returns,
-        'fraction of first returns': first_returns / total_points,
-        'fraction of intermediate returns': intermediate_returns / total_points,
-        'fraction of last returns': last_returns / total_points,
-        'fraction of single returns': single_returns / total_points,
-        'fraction of multiple returns': multiple_returns / total_points,
+        "number of first returns": first_returns,
+        "number of intermediate returns": intermediate_returns,
+        "number of last returns": last_returns,
+        "number of single returns": single_returns,
+        "number of multiple returns": multiple_returns,
+        "fraction of first returns": first_returns / total_points,
+        "fraction of intermediate returns": intermediate_returns / total_points,
+        "fraction of last returns": last_returns / total_points,
+        "fraction of single returns": single_returns / total_points,
+        "fraction of multiple returns": multiple_returns / total_points,
     }
 
     return metrics
