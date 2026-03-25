@@ -307,3 +307,48 @@ def plot_histogram(
         plt.tight_layout()
 
         return fig
+
+
+def plot_histogram_per_class(
+    real_pc, sim_pcs: list, attribute: str, bins: int = 100, normalize: bool = False
+):
+    """
+    Plot histograms of an attribute for real and simulated point clouds side by side, separated by class.
+
+    :param real_pc: PointCloud object representing the real-world point cloud
+    :param sim_pcs: List of PointCloud objects representing the simulated point clouds
+    :param attribute: Name of the attribute to plot
+    :type attribute: str
+    :param bins: Number of bins for the histogram
+    :type bins: int
+    :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
+    :type normalize: bool
+    """
+    classes = np.unique(real_pc.classification)
+    classes = set(
+        class_val
+        for class_val in classes
+        if all(class_val in sim_pc.classification for sim_pc in sim_pcs)
+    )
+
+    figs = []
+    print(
+        f"Found classes {classes} in real and simulated point clouds. Generating histograms for each class..."
+    )
+    for class_value in classes:
+        class_filter_real = real_pc.classification == class_value
+        class_filters_sim = [sim_pc.classification == class_value for sim_pc in sim_pcs]
+        hist_real_world_class = real_pc.subsample(class_filter_real)
+        hist_simulated_class = [
+            sim_pc.subsample(class_filters_sim[i]) for i, sim_pc in enumerate(sim_pcs)
+        ]
+        fig = plot_histogram(
+            hist_real_world_class,
+            hist_simulated_class,
+            attribute,
+            bins,
+            overlay=True,
+            normalize=normalize,
+        )
+        figs.append(fig)
+    return figs, classes
