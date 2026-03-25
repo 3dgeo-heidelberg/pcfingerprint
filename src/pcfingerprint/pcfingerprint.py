@@ -81,17 +81,23 @@ class PointCloud:
         """
         if hasattr(self, "classification") and self.classification is not None:
             mask = np.isin(self.classification, classes)
-            return self.subsample(mask)
+            return self.mask(mask)
         else:
             raise ValueError(
                 "PointCloud does not have a 'classification' attribute to filter by."
             )
 
-    def subsample(self, indices):
-        """Subsample the point cloud to the given indices."""
+    def mask(self, indices):
+        """Mask the point cloud using the given indices."""
         if self.coords is not None:
             new_pc = PointCloud()
             new_pc.coords = self.coords[indices]
+            # copy over all other attributes if they exist
+            if self.source is not None:
+                new_pc.source = self.source
+            if self.normals is not None:
+                new_pc.normals = self.normals[indices]
+                new_pc.normal_radius = self.normal_radius
             if self.gps_time is not None:
                 new_pc.gps_time = self.gps_time[indices]
             if self.return_number is not None:
@@ -103,10 +109,18 @@ class PointCloud:
             if self.classification is not None:
                 new_pc.classification = self.classification[indices]
             if self.point_density is not None:
+                warnings.warn(
+                    "Masking point density. If using mask to subset points, please recompute point density",
+                    UserWarning,
+                )
                 new_pc.point_density = self.point_density[indices]
                 new_pc.point_density_radius = self.point_density_radius
             # geometric features
             for feat_name, feat_data in self.geometric_features.items():
+                warnings.warn(
+                    f"Masking geometric feature {feat_name}. If using mask to subset points, consider recomputing geometric features",
+                    UserWarning,
+                )
                 new_pc.geometric_features[feat_name] = feat_data[indices]
             return new_pc
         else:
@@ -342,7 +356,7 @@ class PointCloudPair:
         if (
             classes is not None
             and self.real_world.classification is None
-            and any(sim_pc.classification is None for sim_pc in self.simulated)
+            or any(sim_pc.classification is None for sim_pc in self.simulated)
         ):
             raise ValueError(
                 "Cannot filter by class if point cloud does not have 'classification' attribute."

@@ -19,7 +19,7 @@ def subsample_points(pc, max_n_points: int = 500_000):
     num_points = pc.coords.shape[0]
     if num_points > max_n_points:
         indices = np.random.choice(num_points, max_n_points, replace=False)
-        pc = pc.subsample(indices)
+        pc = pc.mask(indices)
         print(
             f"Subsampled from {num_points} to {pc.coords.shape[0]} points for visualization."
         )
@@ -324,12 +324,22 @@ def plot_histogram_per_class(
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
-    classes = np.unique(real_pc.classification)
-    classes = set(
-        class_val
-        for class_val in classes
-        if all(class_val in sim_pc.classification for sim_pc in sim_pcs)
-    )
+    try:
+        # Compute classes that are present in both the real point cloud and all simulated point clouds.
+        real_classes = np.unique(real_pc.classification)
+        if not sim_pcs:
+            classes = real_classes.tolist()
+        else:
+            common_classes = real_classes
+            for sim_pc in sim_pcs:
+                sim_classes = np.unique(sim_pc.classification)
+                common_classes = np.intersect1d(common_classes, sim_classes)
+            # Convert to a sorted list for deterministic iteration and display.
+            classes = common_classes.tolist()
+    except AttributeError:
+        raise ValueError(
+            "One or more point clouds do not have a 'classification' attribute to plot histogram per class."
+        )
 
     figs = []
     print(
@@ -338,9 +348,9 @@ def plot_histogram_per_class(
     for class_value in classes:
         class_filter_real = real_pc.classification == class_value
         class_filters_sim = [sim_pc.classification == class_value for sim_pc in sim_pcs]
-        hist_real_world_class = real_pc.subsample(class_filter_real)
+        hist_real_world_class = real_pc.mask(class_filter_real)
         hist_simulated_class = [
-            sim_pc.subsample(class_filters_sim[i]) for i, sim_pc in enumerate(sim_pcs)
+            sim_pc.mask(class_filters_sim[i]) for i, sim_pc in enumerate(sim_pcs)
         ]
         fig = plot_histogram(
             hist_real_world_class,
