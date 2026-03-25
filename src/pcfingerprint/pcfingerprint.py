@@ -353,6 +353,8 @@ class PointCloudPair:
             int
         ] = None,  # TODO: convert to more general filter argument (also on other attributes?)
     ):
+        hist_real_world = self.real_world
+        hist_simulated = self.simulated
         if (
             classes is not None
             and self.real_world.classification is None
