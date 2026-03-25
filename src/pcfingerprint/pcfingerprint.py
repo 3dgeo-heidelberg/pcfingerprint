@@ -22,6 +22,7 @@ class PointCloud:
         return_number=None,
         number_of_returns=None,
         intensity=None,
+        classification=None,
     ):
         self.coords = coords  # Nx3 array of point coordinates
         self.source = None  # source file path
@@ -30,6 +31,7 @@ class PointCloud:
         self.return_number = return_number  # int array
         self.number_of_returns = number_of_returns  # int array
         self.intensity = intensity  # int array
+        self.classification = classification  # int array for point classification
         self.point_density = None  # float array
         self.point_density_radius = None  # radius used for point density
         self.normals = None  # Nx3 array of normal vectors
@@ -67,6 +69,24 @@ class PointCloud:
         else:
             raise ValueError("PointCloud intensity is not set.")
 
+    def filter_by_class(self, classes: list[int]):
+        """
+        Filter the point cloud to specified classes using the "classification" attribute (if present).
+
+        :param classes: List of class values to filter by.
+        :type classes: list[int]
+
+        :return: A new PointCloud object containing only points of the specified classes.
+        :rtype: PointCloud
+        """
+        if hasattr(self, "classification") and self.classification is not None:
+            mask = np.isin(self.classification, classes)
+            return self.subsample(mask)
+        else:
+            raise ValueError(
+                "PointCloud does not have a 'classification' attribute to filter by."
+            )
+
     def subsample(self, indices):
         """Subsample the point cloud to the given indices."""
         if self.coords is not None:
@@ -80,6 +100,11 @@ class PointCloud:
                 new_pc.number_of_returns = self.number_of_returns[indices]
             if self.intensity is not None:
                 new_pc.intensity = self.intensity[indices]
+            if self.classification is not None:
+                new_pc.classification = self.classification[indices]
+            if self.point_density is not None:
+                new_pc.point_density = self.point_density[indices]
+                new_pc.point_density_radius = self.point_density_radius
             # geometric features
             for feat_name, feat_data in self.geometric_features.items():
                 new_pc.geometric_features[feat_name] = feat_data[indices]
@@ -275,18 +300,66 @@ class PointCloudPair:
             for sim_pc in self.simulated:
                 compute_geom_feat_pgeof(sim_pc, pgeof_features, radius, max_knn)
 
+    def filter_by_class(self, classes: list[int]):
+        """
+        Filter the point clouds in the PointCloudPair to specified classes using the "classification" attribute (if present).
+
+        :param classes: List of class values to filter by.
+        :type classes: list[int]
+
+        :return: A new PointCloudPair object containing only points of the specified classes.
+        :rtype: PointCloudPair
+        """
+        if self.real_world.classification is None or any(
+            sim_pc.classification is None for sim_pc in self.simulated
+        ):
+            raise ValueError(
+                "Cannot filter by class if one of the point clouds does not have 'classification' attribute."
+            )
+        new_pair = PointCloudPair(
+            shift_z=self.shift_z,
+            shift_gps_time=self.shift_gps_time,
+            standardize_intensity=self.standardize_intensity,
+            robust_scale_intensity=self.robust_scale_intensity,
+        )
+        new_pair.real_world = self.real_world.filter_by_class(classes)
+        new_pair.simulated = [
+            sim_pc.filter_by_class(classes) for sim_pc in self.simulated
+        ]
+
+        return new_pair
+
     def plot_histogram(
         self,
         attribute: str,
         bins: int = 100,
         backend: str = "matplotlib",
         overlay: bool = False,
+        classes: list[
+            int
+        ] = None,  # TODO: convert to more general filter argument (also on other attributes?)
     ):
+        if (
+            classes is not None
+            and self.real_world.classification is None
+            and any(sim_pc.classification is None for sim_pc in self.simulated)
+        ):
+            raise ValueError(
+                "Cannot filter by class if point cloud does not have 'classification' attribute."
+            )
+        elif classes is not None:
+            print(f"Filtering point clouds to specified classes: {classes}")
+            hist_real_world = self.real_world.filter_by_class(classes)
+            hist_simulated = [
+                self.simulated[i].filter_by_class(classes)
+                for i in range(len(self.simulated))
+            ]
+
         if backend == "matplotlib":
             from pcfingerprint.vis_matplotlib import plot_histogram
 
             fig = plot_histogram(
-                self.real_world, self.simulated[0], attribute, bins, overlay=overlay
+                hist_real_world, hist_simulated, attribute, bins, overlay=overlay
             )
         elif backend == "plotly":
             pass
@@ -365,6 +438,11 @@ def read_las_file(filepath):
     intensity = (
         las.intensity if "intensity" in las.point_format.dimension_names else None
     )
+    classification = (
+        las.classification
+        if "classification" in las.point_format.dimension_names
+        else None
+    )
 
     # create new PointCloud and assign attributes
     pc = PointCloud()
@@ -373,6 +451,7 @@ def read_las_file(filepath):
     pc.return_number = return_number
     pc.number_of_returns = number_of_returns
     pc.intensity = intensity
+    pc.classification = classification
 
     return pc
 
@@ -433,6 +512,9 @@ def read_xyz_file(filepath):
     if "number_of_returns" in fields:
         number_of_returns_index = fields.index("number_of_returns")
         pc.number_of_returns = data[:, number_of_returns_index].astype(int)
+    if "classification" in fields:
+        classification_index = fields.index("classification")
+        pc.classification = data[:, classification_index].astype(int)
 
     return pc
 
