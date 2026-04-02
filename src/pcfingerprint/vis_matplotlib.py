@@ -19,7 +19,7 @@ def subsample_points(pc, max_n_points: int = 500_000):
     num_points = pc.coords.shape[0]
     if num_points > max_n_points:
         indices = np.random.choice(num_points, max_n_points, replace=False)
-        pc = pc.subsample(indices)
+        pc = pc.mask(indices)
         print(
             f"Subsampled from {num_points} to {pc.coords.shape[0]} points for visualization."
         )
@@ -307,3 +307,62 @@ def plot_histogram(
         plt.tight_layout()
 
         return fig
+
+
+def plot_histogram_per_class(
+    real_pc, sim_pcs: list, attribute: str, bins: int = 100, normalize: bool = False
+):
+    """
+    Plot histograms of an attribute for real and simulated point clouds side by side, separated by class.
+    If a class is present in the real point cloud but not in any of the simulated point clouds, or vice versa,
+    there will be one empty histogram.
+
+    :param real_pc: PointCloud object representing the real-world point cloud
+    :param sim_pcs: List of PointCloud objects representing the simulated point clouds
+    :param attribute: Name of the attribute to plot
+    :type attribute: str
+    :param bins: Number of bins for the histogram
+    :type bins: int
+    :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
+    :type normalize: bool
+    """
+
+    def _validate_classes(pc):
+        try:
+            getattr(pc, "classification")
+        except AttributeError:
+            raise ValueError(
+                f"Point cloud does not have 'classification' attribute, cannot plot histogram per class."
+            )
+        if pc.classification is None or len(pc.classification) == 0:
+            raise ValueError(
+                f"Point cloud has empty 'classification' attribute, cannot plot histogram per class."
+            )
+
+    _validate_classes(real_pc)
+    for sim_pc in sim_pcs:
+        _validate_classes(sim_pc)
+
+    figs = []
+
+    classes = np.unique(real_pc.classification)
+    for sim_pc in sim_pcs:
+        sim_classes = np.unique(sim_pc.classification)
+        classes = np.union1d(classes, sim_classes)
+    for class_value in classes:
+        class_filter_real = real_pc.classification == class_value
+        class_filters_sim = [sim_pc.classification == class_value for sim_pc in sim_pcs]
+        hist_real_world_class = real_pc.mask(class_filter_real)
+        hist_simulated_class = [
+            sim_pc.mask(class_filters_sim[i]) for i, sim_pc in enumerate(sim_pcs)
+        ]
+        fig = plot_histogram(
+            hist_real_world_class,
+            hist_simulated_class,
+            attribute,
+            bins,
+            overlay=True,
+            normalize=normalize,
+        )
+        figs.append(fig)
+    return figs, classes

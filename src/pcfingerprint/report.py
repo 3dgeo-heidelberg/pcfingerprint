@@ -171,9 +171,17 @@ def generate_report(
     # create a pandas dataframe from this
     df = pd.DataFrame(columns=["Dataset", "Filename"])
     df["Dataset"] = ["Real"] + [f"Simulated {i+1}" for i in range(len(sim_pcs))]
-    df["Filename"] = [Path(real_pc.source).name] + [
-        Path(sim_pc.source).as_posix() for sim_pc in sim_pcs
-    ]
+    filenames = []
+    try:
+        filenames.append(Path(real_pc.source).as_posix())
+    except TypeError:
+        filenames.append(None)
+    for sim_pc in sim_pcs:
+        try:
+            filenames.append(Path(sim_pc.source).as_posix())
+        except TypeError:
+            filenames.append(None)
+    df["Filename"] = filenames
     table = DataFrameTable(df, caption="Point Cloud Files Used in Comparison")
     section.add_content({"file_table": table})
     block_content["section_overview"] = section
@@ -307,6 +315,39 @@ def generate_report(
                     caption=f"Histogram of {attribute}",
                 )
                 section_content["histogram"] = figure_selection
+            else:
+                # other backends not supported yet
+                raise NotImplementedError(
+                    f"Visualization backend {vis_backend} not supported for histogram plot."
+                )
+
+        if "histogram_per_class" in visualizations:
+            # generate histogram plot
+            if vis_backend == "matplotlib":
+                # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
+                from pcfingerprint.vis_matplotlib import plot_histogram_per_class
+
+                imgs = []
+                for norm, norm_str in ((False, "frequency"), (True, "density")):
+                    figs, classes = plot_histogram_per_class(
+                        real_pc, sim_pcs, attribute, normalize=norm
+                    )
+                    for fig, class_val in zip(figs, classes):
+                        img_file = report.target_folder / Path(
+                            f"{attribute}_histogram_class{class_val}_{norm_str}.png"
+                        )
+                        fig.savefig(img_file, format="png")
+                        plt.close(fig)
+                        imgs.append((f"class_{class_val}_{norm_str}", img_file))
+                if len(imgs) > 0:
+                    image_labels = [label for label, _ in imgs]
+                    image_names = [path for _, path in imgs]
+                    figure_selection = MatplotlibFigureSelection(
+                        image_names=image_names,
+                        image_labels=image_labels,
+                        caption=f"Histogram of {attribute} per class",
+                    )
+                    section_content["histogram per class"] = figure_selection
             else:
                 # other backends not supported yet
                 raise NotImplementedError(
