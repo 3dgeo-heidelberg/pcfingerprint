@@ -81,6 +81,12 @@ class PointCloud:
         """
         if hasattr(self, "classification") and self.classification is not None:
             mask = np.isin(self.classification, classes)
+            # check if mask is empty
+            if not np.any(mask):
+                warnings.warn(
+                    f"No points found for classes {classes} in this point cloud.",
+                    UserWarning,
+                )
             return self.mask(mask)
         else:
             raise ValueError(
@@ -355,21 +361,12 @@ class PointCloudPair:
     ):
         hist_real_world = self.real_world
         hist_simulated = self.simulated
-        if (
-            classes is not None
-            and self.real_world.classification is None
-            or any(sim_pc.classification is None for sim_pc in self.simulated)
-        ):
-            raise ValueError(
-                "Cannot filter by class if point cloud does not have 'classification' attribute."
-            )
-        elif classes is not None:
-            print(f"Filtering point clouds to specified classes: {classes}")
-            hist_real_world = self.real_world.filter_by_class(classes)
-            hist_simulated = [
-                self.simulated[i].filter_by_class(classes)
-                for i in range(len(self.simulated))
-            ]
+        print(f"Filtering point clouds to specified classes: {classes}")
+        hist_real_world = self.real_world.filter_by_class(classes)
+        hist_simulated = [
+            self.simulated[i].filter_by_class(classes)
+            for i in range(len(self.simulated))
+        ]
 
         if backend == "matplotlib":
             from pcfingerprint.vis_matplotlib import plot_histogram
