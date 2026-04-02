@@ -7,8 +7,8 @@ start_time = time.time()
 data_folder = Path("data/forest")
 report_folder = Path("output_report_tls_virtual_forest")
 pc_pair = pcfingerprint.PointCloudPair(standardize_intensity=False, shift_z=True)
-pc_pair.load_real_world(data_folder / "plot_10_aligned_extract_s.laz")
-pc_pair.load_simulated(list(data_folder.glob("plot_10_simulated_extract_s.laz")))
+pc_pair.load_real_world(data_folder / "plot_10_original_s.laz")
+pc_pair.load_simulated(list(data_folder.glob("plot_10_simulated_s.laz")))
 print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
 
 pdens_start_time = time.time()
@@ -37,7 +37,7 @@ pc_pair.generate_report(
     summary_statistics=True,
     return_number_metrics=True,
     visualizations=[
-        "histogram_overlay",  # "histogram" will instead plot histograms side by side
+        "histogram_overlay",
         "3d_scatter",
         "histogram_per_class",
     ],
@@ -54,7 +54,7 @@ pc_pair_filtered.generate_report(
     summary_statistics=True,
     return_number_metrics=True,
     visualizations=[
-        "histogram_overlay",  # "histogram" will instead plot histograms side by side
+        "histogram_overlay",
         "3d_scatter",
     ],
     vis_backend="matplotlib",
