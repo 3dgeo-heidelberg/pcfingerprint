@@ -1,8 +1,9 @@
 from pathlib import Path
 import pcfingerprint
+from pcfingerprint.vis_matplotlib import plot_histogram_per_class
 import numpy as np
 import pytest
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 
 
 def test_load_point_clouds(pc_pair_uls_voxels):
@@ -129,4 +130,17 @@ def test_histogram_class_filter(pc_pair_classes):
     )
     assert fig is not None
     # check if the returned object is a matplotlib figure
-    assert type(fig) == plt.Figure
+    assert isinstance(fig, Figure)
+
+
+def test_histogram_per_class(pc_pair_classes):
+    # check if histogram per class can be generated without errors
+    fig_list, classes = plot_histogram_per_class(
+        pc_pair_classes.real_world,
+        pc_pair_classes.simulated,
+        attribute="intensity",
+    )
+    num_classes_expected = 4
+    assert fig_list is not None
+    assert len(fig_list) == num_classes_expected
+    assert [0, 1, 2, 3] in classes

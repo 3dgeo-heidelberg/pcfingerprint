@@ -314,6 +314,8 @@ def plot_histogram_per_class(
 ):
     """
     Plot histograms of an attribute for real and simulated point clouds side by side, separated by class.
+    If a class is present in the real point cloud but not in any of the simulated point clouds, or vice versa,
+    there will be one empty histogram.
 
     :param real_pc: PointCloud object representing the real-world point cloud
     :param sim_pcs: List of PointCloud objects representing the simulated point clouds
@@ -324,27 +326,25 @@ def plot_histogram_per_class(
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
-    try:
-        # Compute classes that are present in both the real point cloud and all simulated point clouds.
-        real_classes = np.unique(real_pc.classification)
-        if not sim_pcs:
-            classes = real_classes.tolist()
-        else:
-            common_classes = real_classes
-            for sim_pc in sim_pcs:
-                sim_classes = np.unique(sim_pc.classification)
-                common_classes = np.intersect1d(common_classes, sim_classes)
-            # Convert to a sorted list for deterministic iteration and display.
-            classes = common_classes.tolist()
-    except AttributeError:
-        raise ValueError(
-            "One or more point clouds do not have a 'classification' attribute to plot histogram per class."
-        )
+
+    def _validate_classes(pc):
+        try:
+            getattr(pc, "classification")
+        except AttributeError:
+            raise ValueError(
+                f"Point cloud does not have 'classification' attribute, cannot plot histogram per class."
+            )
+
+    _validate_classes(real_pc)
+    for sim_pc in sim_pcs:
+        _validate_classes(sim_pc)
 
     figs = []
-    print(
-        f"Found classes {classes} in real and simulated point clouds. Generating histograms for each class..."
-    )
+
+    classes = np.unique(real_pc.classification)
+    for sim_pc in sim_pcs:
+        sim_classes = np.unique(sim_pc.classification)
+        classes = np.union1d(classes, sim_classes)
     for class_value in classes:
         class_filter_real = real_pc.classification == class_value
         class_filters_sim = [sim_pc.classification == class_value for sim_pc in sim_pcs]
