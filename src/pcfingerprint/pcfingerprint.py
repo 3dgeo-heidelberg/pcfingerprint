@@ -79,6 +79,8 @@ class PointCloud:
         :return: A new PointCloud object containing only points of the specified classes.
         :rtype: PointCloud
         """
+        if classes is None or classes == []:
+            raise ValueError("Please provide a list of classes to filter by.")
         if hasattr(self, "classification") and self.classification is not None:
             mask = np.isin(self.classification, classes)
             # check if mask is empty
@@ -361,12 +363,13 @@ class PointCloudPair:
     ):
         hist_real_world = self.real_world
         hist_simulated = self.simulated
-        print(f"Filtering point clouds to specified classes: {classes}")
-        hist_real_world = self.real_world.filter_by_class(classes)
-        hist_simulated = [
-            self.simulated[i].filter_by_class(classes)
-            for i in range(len(self.simulated))
-        ]
+        if classes is not None:
+            print(f"Filtering point clouds to specified classes: {classes}")
+            hist_real_world = self.real_world.filter_by_class(classes)
+            hist_simulated = [
+                self.simulated[i].filter_by_class(classes)
+                for i in range(len(self.simulated))
+            ]
 
         if backend == "matplotlib":
             from pcfingerprint.vis_matplotlib import plot_histogram
