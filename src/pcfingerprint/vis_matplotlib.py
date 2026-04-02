@@ -334,6 +334,10 @@ def plot_histogram_per_class(
             raise ValueError(
                 f"Point cloud does not have 'classification' attribute, cannot plot histogram per class."
             )
+        if pc.classification is None or len(pc.classification) == 0:
+            raise ValueError(
+                f"Point cloud has empty 'classification' attribute, cannot plot histogram per class."
+            )
 
     _validate_classes(real_pc)
     for sim_pc in sim_pcs:
