@@ -2,14 +2,12 @@ from pathlib import Path
 import pcfingerprint
 import numpy as np
 import pytest
+import matplotlib.pyplot as plt
 
 
-def test_load_point_clouds():
-    pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_real_world("data/uls_tree_voxels/uls_reference.laz")
-    pc_pair.load_simulated("data/uls_tree_voxels/uls_detailed_voxel_modes_scaled.laz")
-    assert pc_pair.real_world.coords is not None
-    assert all(sim.coords is not None for sim in pc_pair.simulated)
+def test_load_point_clouds(pc_pair_uls_voxels):
+    assert pc_pair_uls_voxels.real_world.coords is not None
+    assert all(sim.coords is not None for sim in pc_pair_uls_voxels.simulated)
 
 
 def test_load_point_clouds_xyz():
@@ -20,32 +18,23 @@ def test_load_point_clouds_xyz():
     assert pc_pair.real_world.coords.shape[1] == 3
 
 
-def test_load_point_clouds_multiple():
-    pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_real_world("data/uls_tree_voxels/uls_reference.laz")
-    pc_pair.load_simulated(
-        list(Path("data/uls_tree_voxels").glob("uls_detailed_voxel*.laz"))
-    )
-    assert pc_pair.real_world is not None
-    assert pc_pair.simulated is not None
+def test_load_point_clouds_multiple(pc_pair_uls_voxels_multiple):
+    assert pc_pair_uls_voxels_multiple.real_world.coords is not None
+    assert all(sim.coords is not None for sim in pc_pair_uls_voxels_multiple.simulated)
 
 
-def test_only_overlapping_attributes():
-    pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_real_world("data/uls_tree_voxels/uls_reference.laz")
-    pc_pair.load_simulated("data/uls_tree_voxels/uls_detailed_voxel_modes_scaled.laz")
-
+def test_only_overlapping_attributes(pc_pair_uls_voxels):
     for attr in [
         "gps_time",
         "return_number",
         "number_of_returns",
         "intensity",
     ]:
-        real_attr = getattr(pc_pair.real_world, attr)
-        sim_attr = getattr(pc_pair.simulated[0], attr)
+        real_attr = getattr(pc_pair_uls_voxels.real_world, attr)
+        sim_attr = getattr(pc_pair_uls_voxels.simulated[0], attr)
         if real_attr is None or sim_attr is None:
-            assert getattr(pc_pair.real_world, attr) is None
-            assert getattr(pc_pair.simulated[0], attr) is None
+            assert getattr(pc_pair_uls_voxels.real_world, attr) is None
+            assert getattr(pc_pair_uls_voxels.simulated[0], attr) is None
 
 
 def test_create_pointcloud_numpy():
@@ -59,52 +48,85 @@ def test_create_pointcloud_numpy():
     assert pc.number_of_returns.shape == (100,)
 
 
-def test_geometric_features_single():
-    pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_real_world("data/uls_tree_voxels/uls_reference.laz")
-    pc_pair.load_simulated("data/uls_tree_voxels/uls_detailed_voxel_modes_scaled.laz")
-    pc_pair.compute_geometric_features(feature_names=["linearity"], radius=1.0)
-    assert "linearity_r1.0" in pc_pair.real_world.geometric_features
+def test_geometric_features_single(pc_pair_uls_voxels):
+    pc_pair_uls_voxels.compute_geometric_features(
+        feature_names=["linearity"], radius=1.0
+    )
+    assert "linearity_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
 
 
-def test_geometric_features_multiple():
-    pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_real_world("data/uls_tree_voxels/uls_reference.laz")
-    pc_pair.load_simulated("data/uls_tree_voxels/uls_detailed_voxel_modes_scaled.laz")
-    pc_pair.compute_geometric_features(
+def test_geometric_features_multiple(pc_pair_uls_voxels):
+    pc_pair_uls_voxels.compute_geometric_features(
         feature_names=["linearity", "planarity", "scattering"], radius=1.0
     )
-    assert "linearity_r1.0" in pc_pair.real_world.geometric_features
-    assert "planarity_r1.0" in pc_pair.real_world.geometric_features
-    assert "scattering_r1.0" in pc_pair.real_world.geometric_features
+    assert "linearity_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
+    assert "planarity_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
+    assert "scattering_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
 
 
-def test_geometric_features_different_backends():
-    pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_real_world("data/uls_tree_voxels/uls_reference.laz")
-    pc_pair.load_simulated("data/uls_tree_voxels/uls_detailed_voxel_modes_scaled.laz")
-    pc_pair.compute_geometric_features(
+def test_geometric_features_different_backends(pc_pair_uls_voxels):
+    pc_pair_uls_voxels.compute_geometric_features(
         feature_names=["linearity", "curvature"], radius=1.0, backend="pgeof"
     )
-    pc_pair.compute_geometric_features(
+    pc_pair_uls_voxels.compute_geometric_features(
         feature_names=["planarity", "eigenvalue1"], radius=1.0, backend="jakteristics"
     )
-    assert "linearity_r1.0" in pc_pair.real_world.geometric_features
-    assert "curvature_r1.0" in pc_pair.real_world.geometric_features
-    assert "planarity_r1.0" in pc_pair.real_world.geometric_features
-    assert "eigenvalue1_r1.0" in pc_pair.real_world.geometric_features
+    assert "linearity_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
+    assert "curvature_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
+    assert "planarity_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
+    assert "eigenvalue1_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
 
 
-def test_geometric_features_backend_fallback():
-    pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_real_world("data/uls_tree_voxels/uls_reference.laz")
-    pc_pair.load_simulated("data/uls_tree_voxels/uls_detailed_voxel_modes_scaled.laz")
+def test_geometric_features_backend_fallback(pc_pair_uls_voxels):
     with pytest.warns(UserWarning, match="Features .* not available in"):
-        pc_pair.compute_geometric_features(
+        pc_pair_uls_voxels.compute_geometric_features(
             feature_names=["linearity", "planarity", "eigenvalue1"],
             radius=1.0,
             backend="pgeof",
         )
-    assert "linearity_r1.0" in pc_pair.real_world.geometric_features
-    assert "planarity_r1.0" in pc_pair.real_world.geometric_features
-    assert "eigenvalue1_r1.0" in pc_pair.real_world.geometric_features
+    assert "linearity_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
+    assert "planarity_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
+    assert "eigenvalue1_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
+
+
+def test_filter_by_class(pc_pair_classes):
+    pc_pair_filtered = pc_pair_classes.filter_by_class([1])  # filter to only class 1
+    assert pc_pair_filtered.real_world.coords is not None
+    assert all(sim.coords is not None for sim in pc_pair_filtered.simulated)
+    assert np.all(pc_pair_filtered.real_world.classification == 1)
+    for sim in pc_pair_filtered.simulated:
+        assert np.all(sim.classification == 1)
+
+
+def test_filter_by_class_missing_classification(pc_pair_uls_voxels):
+    pc_pair_uls_voxels.real_world.classification = None
+    with pytest.raises(
+        ValueError,
+        match="Cannot filter by class if one of the point clouds does not have 'classification' attribute.",
+    ):
+        pc_pair_uls_voxels.filter_by_class([1])
+    for sim in pc_pair_uls_voxels.simulated:
+        sim.classification = None
+    with pytest.raises(
+        ValueError,
+        match="Cannot filter by class if one of the point clouds does not have 'classification' attribute.",
+    ):
+        pc_pair_uls_voxels.filter_by_class([1])
+
+
+def test_filter_by_class_missing_class(pc_pair_classes):
+    # check if it raises a warning when no points are found for the specified class
+    with pytest.warns(UserWarning):
+        pc_pair_classes.filter_by_class([999])  # assuming class 999 does not exist
+
+
+def test_histogram_class_filter(pc_pair_classes):
+    # check if histogram per class can be generated without errors
+    fig = pc_pair_classes.plot_histogram(
+        attribute="intensity",
+        classes=[1],
+        backend="matplotlib",
+    )
+    assert fig is not None
+    # check if the returned object is a matplotlib figure
+    assert type(fig) == plt.Figure
