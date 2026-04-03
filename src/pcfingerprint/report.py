@@ -22,6 +22,15 @@ import pcfingerprint
 
 
 def wrap_div(html, class_=None):
+    """Wrap HTML content in a ``div`` element.
+
+    :param html: HTML string to wrap.
+    :type html: str
+    :param class_: Optional CSS class to add to the wrapper.
+    :type class_: str | None
+    :return: A ``div``-wrapped HTML string.
+    :rtype: str
+    """
     if class_:
         return f"<div class='{class_}'>\n{html}\n</div>\n"
     else:
@@ -39,17 +48,26 @@ class MatplotlibFigure(Figure):
         caption: str = "",
         notes: Optional[list[str]] = None,
     ):
-        """
-        The constructor of the MatplotlibFigure class
-        Args:
-            image name (Path): The path to the matplotlib figure
-            caption(str): The caption text
-            notes (List[str]): The notes to be added to the caption
+        """Initialize a matplotlib-backed report figure.
+
+        :param image_name: Path to the matplotlib figure image.
+        :type image_name: pathlib.Path | None
+        :param caption: Caption text for the figure.
+        :type caption: str
+        :param notes: Optional notes to be added to the caption.
+        :type notes: list[str] | None
         """
         super(MatplotlibFigure, self).__init__(caption, notes)
         self.image_name = image_name
 
     def _as_html_figure_content(self, report: ReportInterface):
+        """Render the matplotlib figure as HTML content.
+
+        :param report: Report instance used for figure numbering.
+        :type report: ReportInterface
+        :return: HTML fragment for embedding the image.
+        :rtype: str
+        """
 
         html = f"""
                 <div style='display: inline-flex;'>
@@ -71,6 +89,18 @@ class MatplotlibFigureSelection(Figure):
         caption: str = "",
         notes: Optional[list[str]] = None,
     ):
+        """Initialize a dropdown-controlled figure selection.
+
+        :param image_names: Paths to images available in the selector.
+        :type image_names: list[pathlib.Path]
+        :param image_labels: Labels shown for each selectable image.
+        :type image_labels: list[str]
+        :param caption: Caption text for the figure block.
+        :type caption: str
+        :param notes: Optional notes to include with the caption.
+        :type notes: list[str] | None
+        :raises ValueError: If image and label counts differ or no images are provided.
+        """
         super().__init__(caption, notes)
 
         if len(image_names) != len(image_labels):
@@ -82,6 +112,13 @@ class MatplotlibFigureSelection(Figure):
         self.image_labels = image_labels
 
     def _as_html_figure_content(self, report: ReportInterface) -> str:
+        """Render figure-selection HTML with dropdown and switchable images.
+
+        :param report: Report instance used to provide unique figure context.
+        :type report: ReportInterface
+        :return: HTML fragment with selector, image elements, and JavaScript.
+        :rtype: str
+        """
         element_id = f"fig_sel_{self.id.replace('-', '_')}"
 
         # Create the dropdown options
@@ -144,7 +181,27 @@ def generate_report(
     visualizations: list[str] = ["histogram"],
     vis_backend: str = "matplotlib",
 ):
-    """Generate an HTML report comparing real-world and simulated point clouds."""
+    """Generate an HTML report comparing real and simulated point clouds.
+
+    :param real_pc: Reference point cloud object.
+    :param sim_pcs: Simulated point cloud objects to compare against ``real_pc``.
+    :type sim_pcs: list
+    :param output_path: Output path for the generated HTML report.
+    :type output_path: str
+    :param attribute_list: Point attributes to analyze and visualize.
+    :type attribute_list: list[str]
+    :param summary_statistics: Whether to include summary statistics tables.
+    :type summary_statistics: bool
+    :param return_number_metrics: Whether to include return-number metrics.
+    :type return_number_metrics: bool
+    :param visualizations: Visualization types to include.
+    :type visualizations: list[str]
+    :param vis_backend: Visualization backend to use.
+    :type vis_backend: str
+    :raises NotImplementedError: If an unsupported visualization backend is requested.
+    :return: None
+    :rtype: None
+    """
 
     # Create report
     folder = Path(output_path).parent
