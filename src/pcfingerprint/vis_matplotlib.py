@@ -16,6 +16,18 @@ plt.rcParams["grid.color"] = "#cccccc"
 
 
 def subsample_points(pc, max_n_points: int = 500_000):
+    """
+    Randomly subsample the point cloud to a maximum number of points.
+    If the point cloud has less points than the specified maximum, it will be returned unchanged.
+
+    :param pc: The input point cloud to be subsampled.
+    :type pc: PointCloud
+    :param max_n_points: The maximum number of points to subsample to.
+    :type max_n_points: int
+
+    :return: The subsampled point cloud and the indices of the points that were kept.
+    :rtype: tuple(PointCloud, np.ndarray)
+    """
     num_points = pc.coords.shape[0]
     if num_points > max_n_points:
         indices = np.random.choice(num_points, max_n_points, replace=False)
@@ -29,6 +41,7 @@ def subsample_points(pc, max_n_points: int = 500_000):
 
 
 def style_axis(ax):
+    """Utility function to style the axes of the 3D scatter plot for a cleaner look."""
     ax.set_xlabel("X", labelpad=-10)
     ax.set_ylabel("Y", labelpad=-10)
     ax.set_zlabel("Z", labelpad=-10)
@@ -45,7 +58,21 @@ def plot_3d_scatter(
     max_n_points: int = 500_000,
     overlay: bool = False,
 ):
+    """
+    Create a 3D scatter plot of the real and simulated point clouds, colored by the specified attribute if provided.
 
+    :param real_pc: PointCloud object representing the real-world point cloud
+    :param sim_pcs: List of PointCloud objects representing the simulated point clouds
+    :param attribute: Name of the attribute to color by. If None, points will not be colored by z-coordinate.
+    :type attribute: str
+    :param max_n_points: Maximum number of points to plot for each point cloud. If a point cloud has more points, it will be randomly subsampled to this number for visualization purposes.
+    :type max_n_points: int
+    :param overlay: Whether to overlay all point clouds in one plot (True) or plot them side by side (False). Overlaying only makes sense for two point clouds.
+    :type overlay: bool
+
+    :return: The matplotlib figure object containing the 3D scatter plot.
+    :rtype: matplotlib.figure.Figure
+    """
     # subsample points if necessary
     real_pc, subsample_indices = subsample_points(real_pc, max_n_points)
     sim_pc_sub = [
@@ -64,7 +91,6 @@ def plot_3d_scatter(
             real_pc.coords[:, 1],
             real_pc.coords[:, 2],
             c=colors(0),
-            cmap="viridis",
             s=0.1,
             label="Real World Point Cloud",
         )
@@ -76,7 +102,6 @@ def plot_3d_scatter(
                 sim_pc.coords[:, 1],
                 sim_pc.coords[:, 2],
                 c=color,
-                cmap="viridis",
                 s=0.1,
                 label=f"Simulated Point Cloud {i+1}",
             )
@@ -93,6 +118,11 @@ def plot_3d_scatter(
         )
         plt.legend()
     else:
+        if attribute is None:
+            print(
+                "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
+            )
+            attribute = "z"
         print(f"Generating 3D scatter plot colored by {attribute}...")
 
         # get attribute data

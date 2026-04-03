@@ -96,7 +96,15 @@ class PointCloud:
             )
 
     def mask(self, indices):
-        """Mask the point cloud using the given indices."""
+        """
+        Mask the point cloud using the given indices.
+
+        :param indices: Boolean or integer indices for masking.
+        :type indices: np.ndarray of bool or int
+
+        :return: A new PointCloud object containing only the masked points.
+        :rtype: PointCloud
+        """
         if self.coords is not None:
             new_pc = PointCloud()
             new_pc.coords = self.coords[indices]
@@ -153,7 +161,9 @@ class PointCloudPair:
         self.robust_scale_intensity = robust_scale_intensity
 
     def drop_attributes(self):
-        # drop attributes that are not present in all point clouds
+        """
+        Drop attributes that are not present in all point clouds in the pair to ensure comparability.
+        """
         all_pcs = [self.real_world] + self.simulated
         for attr in [
             "gps_time",
@@ -166,6 +176,12 @@ class PointCloudPair:
                     setattr(pc, attr, None)
 
     def load_real_world(self, filepath: str):
+        """
+        Load the real world point cloud from a file. Supported formats are LAS/LAZ and XYZ.
+
+        :param filepath: File path to load. Supported formats are LAS/LAZ and XYZ.
+        :type filepath: str
+        """
         # read based on file extension
         if Path(filepath).suffix in [".las", ".laz"]:
             self.real_world = read_las_file(filepath)
@@ -193,6 +209,13 @@ class PointCloudPair:
             self.drop_attributes()
 
     def load_simulated(self, filepaths: list[str] | str):
+        """
+        Load simulated point cloud(s) from file(s).
+        Users can provide both a single file path (str) and list of file paths (list[str]).
+
+        :param filepaths: File path(s) to load. Can be a single file path (str) or a list of file paths (list[str]). Supported formats are LAS/LAZ and XYZ.
+        :type filepaths: list[str] | str
+        """
         if isinstance(filepaths, str):
             filepaths = [filepaths]
         for filepath in filepaths:
@@ -228,7 +251,16 @@ class PointCloudPair:
     def compute_point_density(
         self, radius: float = 2.0, max_knn: int = 50_000, backend: str = "jakteristics"
     ):
-        # Compute point density for all point clouds
+        """
+        Compute point density for all point clouds in the pair
+
+        :param radius: Search radius for point density computation
+        :type radius: float
+        :param max_knn: Maximum number of neighbors to consider for point density computation
+        :type max_knn: int
+        :param backend: Backend to use for point density computation. Options are "jakteristics" and "pgeof". If the specified backend does not support certain features, it will automatically fall back to the other backend for those features.
+        :type backend: str
+        """
 
         # check if point density already computed
         radius = np.round(radius, 3)
@@ -261,6 +293,18 @@ class PointCloudPair:
         max_knn: int = 50_000,
         backend: str = "pgeof",
     ):
+        """
+        Compute geometric features for all point clouds in the pair
+
+        :param feature_names: List of geometric feature names to compute. Supported features depend on the backend used.
+        :type feature_names: list[str]
+        :param radius: Search radius for geometric feature computation
+        :type radius: float
+        :param max_knn: Maximum number of neighbors to consider for geometric feature computation
+        :type max_knn: int
+        :param backend: Backend to use for geometric feature computation. Options are "jakteristics" and "pgeof". If the specified backend does not support certain features, it will automatically fall back to the other backend for those features.
+        :type backend: str
+        """
         # Compute geometric features for all point clouds
 
         # check if features already computed
