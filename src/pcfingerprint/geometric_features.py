@@ -169,7 +169,7 @@ def compute_geom_feat_pgeof(
 
 ####################################### Voxel-based computations #######################################
 
-def compute_point_density_vapc(point_cloud, voxel_size: float, voxel_origin: np.ndarray) -> None:
+def compute_point_density_vapc(point_cloud, voxel_size: float, voxel_origin: list[float]) -> None:
     """
     Compute voxel-based point density using VAPC.
 
@@ -178,9 +178,11 @@ def compute_point_density_vapc(point_cloud, voxel_size: float, voxel_origin: np.
     :param voxel_size: Size of the voxels
     :type voxel_size: float
     :param voxel_origin: Origin of the voxel grid (3D coordinates)
-    :type voxel_origin: np.ndarray
+    :type voxel_origin: list[float]
     """
     import py4dgeo
+    py4dgeo.enable_timeit(False)
+    py4dgeo.enable_trace(False)
     epoch = py4dgeo.Epoch(point_cloud.coords)
     vapc = py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
     voxel_density = vapc._compute_density()  # compute density using VAPC's internal method
@@ -188,3 +190,42 @@ def compute_point_density_vapc(point_cloud, voxel_size: float, voxel_origin: np.
     point_cloud.voxel_size = voxel_size
     point_cloud.voxel_origin = voxel_origin
     point_cloud.voxel_coords = vapc.unique_voxels  # store voxel coordinates for potential future use
+
+def compute_geom_feat_vapc(point_cloud, voxel_size: float, voxel_origin: list[float], feature_names: list[str]) -> None:
+    """
+    Compute voxel-based geometric features using VAPC.
+
+    :param point_cloud: PointCloud object
+    :type point_cloud: PointCloud
+    :param voxel_size: Size of the voxels
+    :type voxel_size: float
+    :param voxel_origin: Origin of the voxel grid (3D coordinates)
+    :type voxel_origin: list[float]
+
+    Subset of available VAPC features (py4dgeo v1.1):
+    "count", "density", "covariance", "eigenvalues", 
+    "linearity", "planarity", "sphericity", "sum_of_eigenvalues", 
+    "omnivariance", "eigenentropy", "anisotropy", "surface_variation".
+    """
+    import py4dgeo
+    py4dgeo.enable_timeit(False)
+    py4dgeo.enable_trace(False)
+    
+    vapc_available_features = [
+        "count", "density", "covariance", "eigenvalues", 
+        "linearity", "planarity", "sphericity", "sum_of_eigenvalues", 
+        "omnivariance", "eigenentropy", "anisotropy", "surface_variation"
+    ]
+
+    if len(feature_names) == 0:
+        feature_names = vapc_available_features
+    
+    sel_feats = [f for f in feature_names if f in vapc_available_features]
+
+    epoch = py4dgeo.Epoch(point_cloud.coords)
+    vapc = py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
+    vapc.compute_features(feature_names = sel_feats)  # compute features using VAPC's method
+    # store computed features in point_cloud.geometric_features with appropriate keys
+    for feat_name in vapc_available_features:
+        if hasattr(vapc, feat_name):
+            point_cloud.geometric_features[f"vapc_{feat_name}_v{voxel_size}"] = getattr(vapc, feat_name)
