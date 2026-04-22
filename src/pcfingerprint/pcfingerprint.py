@@ -41,7 +41,7 @@ class PointCloud:
         self.geometric_features = {}  # dict of feature name to float array
         self.voxel_size = None  # size of voxels (float)
         self.voxel_origin = None  # list of 3 floats for voxel grid origin
-        self.voxel_density = None  # float array
+        self.voxel_coords = None  # Nx3 array of voxel coordinates (centroids)
         self.is_outlier = None  # boolean array
 
     def shift_z_to_zero(self):
@@ -289,42 +289,6 @@ class PointCloudPair:
             else:
                 raise ValueError(f"Backend {backend} not supported.")
 
-    def compute_voxel_density(self, voxel_size: float, voxel_origin=None):
-        """
-        Compute voxel-based point density for all point clouds in the pair.
-
-        :param voxel_size: Voxel edge length used for voxel-based density computation.
-        :type voxel_size: float
-        :param voxel_origin: Optional voxel grid origin passed to the VAPC backend.
-        :type voxel_origin: array-like, optional
-        """
-        if voxel_size is None:
-            raise ValueError("voxel_size must be provided for voxel density computation.")
-
-        voxel_size = np.round(voxel_size, 3)
-        self.voxel_size = voxel_size
-        if voxel_origin is not None:
-            self.voxel_origin = voxel_origin
-
-        # check if voxel density already computed
-        if (
-            self.real_world.voxel_density is not None
-            and self.real_world.voxel_size == voxel_size
-            and all(
-                sim_pc.voxel_density is not None and sim_pc.voxel_size == voxel_size
-                for sim_pc in self.simulated
-            )
-        ):
-            return  # voxel density already computed
-
-        compute_point_density_vapc(self.real_world, self.voxel_size, self.voxel_origin)
-        self.real_world.voxel_size = self.voxel_size
-        self.real_world.voxel_origin = self.voxel_origin
-        for sim_pc in self.simulated:
-            compute_point_density_vapc(sim_pc, self.voxel_size, self.voxel_origin)
-            sim_pc.voxel_size = self.voxel_size
-            sim_pc.voxel_origin = self.voxel_origin
-
     def compute_geometric_features(
         self,
         feature_names: list[str],
@@ -521,6 +485,23 @@ class PointCloudPair:
         for sim_pc in self.simulated:
             sim_outpath = output_folder / Path(sim_pc.source).name
             write_las(sim_pc, sim_outpath)
+
+    def write_voxelized_point_clouds(self, output_folder: str,reduce_to_feature = "closest_to_centroids"):
+        # write voxelized point clouds (with voxel-based features) to output folder
+        output_folder = Path(output_folder)
+        output_folder.mkdir(parents=True, exist_ok=True)
+        # write real world
+        real_outpath = (output_folder/ f"{Path(self.real_world.source).stem}_voxelized_v{self.real_world.vapc.voxel_size}.las")
+        self.real_world.vapc = self.real_world.vapc.reduce_to_feature(feature_name = reduce_to_feature)  # reduce to voxel centroids for writing
+        self.real_world.vapc.save_as_las(real_outpath)  # use VAPC's built-in function to save voxelized point cloud with features as LAS file
+        # write simulated
+        for sim_pc in self.simulated:
+            sim_pc.vapc = sim_pc.vapc.reduce_to_feature(feature_name = reduce_to_feature)  # reduce to voxel centroids for writing
+            sim_outpath = (
+                output_folder
+                / f"{Path(sim_pc.source).stem}_voxelized_v{sim_pc.vapc.voxel_size}.las"
+            )
+            sim_pc.vapc.save_as_las(sim_outpath)  # use VAPC's built-in function to save voxelized point cloud with features as LAS file
 
 
 def read_las_file(filepath):

@@ -4,6 +4,7 @@ Module for calculating geometric features on point clouds.
 
 import numpy as np
 import warnings
+from pcfingerprint.utils import point_cloud_to_vapc
 
 
 def compute_point_density_jakteristics(
@@ -183,8 +184,12 @@ def compute_point_density_vapc(point_cloud, voxel_size: float, voxel_origin: lis
     import py4dgeo
     py4dgeo.enable_timeit(False)
     py4dgeo.enable_trace(False)
-    epoch = py4dgeo.Epoch(point_cloud.coords)
-    vapc = py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
+    vapc = point_cloud_to_vapc(
+        point_cloud,
+        voxel_size=voxel_size,
+        voxel_origin=voxel_origin,
+        include_additional_dimensions=False,
+    )
     voxel_density = vapc._compute_density()  # compute density using VAPC's internal method
     point_cloud.voxel_density = voxel_density
     point_cloud.voxel_size = voxel_size
@@ -248,17 +253,15 @@ def compute_geom_feat_vapc(point_cloud, voxel_size: float, voxel_origin: list[fl
             "No valid VAPC features selected. "
             f"Available features: {vapc_available_features}"
         )
-
-    epoch = py4dgeo.Epoch(point_cloud.coords)
-    vapc = py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
+    
+    vapc = point_cloud_to_vapc(
+        point_cloud,
+        voxel_size=voxel_size,
+        voxel_origin=voxel_origin,
+        include_additional_dimensions=True,
+    )
     vapc.compute_features(feature_names=sel_feats)  # populates vapc.out
-
-    # Persist voxel grid metadata and any computed density for convenience.
-    point_cloud.voxel_size = voxel_size
-    point_cloud.voxel_origin = voxel_origin
-    point_cloud.voxel_coords = vapc.unique_voxels
-    if "density" in vapc.out:
-        point_cloud.voxel_density = vapc.out["density"]
+    point_cloud.vapc = vapc  # store the full VAPC object for potential future use
 
     # Store computed VAPC outputs under geometric_features.
     for feat_name, feat_data in vapc.out.items():
