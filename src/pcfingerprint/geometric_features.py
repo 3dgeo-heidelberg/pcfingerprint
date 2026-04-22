@@ -166,3 +166,25 @@ def compute_geom_feat_pgeof(
         feats = [feats]
     for i, f_name in enumerate(feature_names):
         point_cloud.geometric_features[f"{f_name}_r{radius}"] = feats[i].reshape(-1)
+
+####################################### Voxel-based computations #######################################
+
+def compute_point_density_vapc(point_cloud, voxel_size: float, voxel_origin: np.ndarray) -> None:
+    """
+    Compute voxel-based point density using VAPC.
+
+    :param point_cloud: PointCloud object
+    :type point_cloud: PointCloud
+    :param voxel_size: Size of the voxels
+    :type voxel_size: float
+    :param voxel_origin: Origin of the voxel grid (3D coordinates)
+    :type voxel_origin: np.ndarray
+    """
+    import py4dgeo
+    epoch = py4dgeo.Epoch(point_cloud.coords)
+    vapc = py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
+    voxel_density = vapc._compute_density()  # compute density using VAPC's internal method
+    point_cloud.voxel_density = voxel_density
+    point_cloud.voxel_size = voxel_size
+    point_cloud.voxel_origin = voxel_origin
+    point_cloud.voxel_coords = vapc.unique_voxels  # store voxel coordinates for potential future use

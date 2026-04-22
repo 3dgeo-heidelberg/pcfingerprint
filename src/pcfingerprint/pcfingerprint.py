@@ -39,7 +39,7 @@ class PointCloud:
         self.normal_radius = None  # radius used for normal estimation
         self.geometric_features = {}  # dict of feature name to float array
         self.voxel_size = None  # size of voxels (float)
-        self.voxel_origin = None  # Nx3 array of voxel origin (int)
+        self.voxel_origin = None  # list of 3 floats for voxel grid origin
         self.voxel_density = None  # float array
         self.is_outlier = None  # boolean array
 
