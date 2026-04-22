@@ -202,30 +202,64 @@ def compute_geom_feat_vapc(point_cloud, voxel_size: float, voxel_origin: list[fl
     :param voxel_origin: Origin of the voxel grid (3D coordinates)
     :type voxel_origin: list[float]
 
-    Subset of available VAPC features (py4dgeo v1.1):
-    "count", "density", "covariance", "eigenvalues", 
-    "linearity", "planarity", "sphericity", "sum_of_eigenvalues", 
-    "omnivariance", "eigenentropy", "anisotropy", "surface_variation".
+    Available VAPC features (py4dgeo v1.1):
+    "count", "density", "centroid", "voxel_center", "local_centroid", "covariance",
+    "closest_to_voxel_centers", "closest_to_centroids", "eigenvalues", "linearity",
+    "planarity", "sphericity", "sum_of_eigenvalues", "omnivariance", "eigenentropy",
+    "anisotropy", "surface_variation".
     """
     import py4dgeo
     py4dgeo.enable_timeit(False)
     py4dgeo.enable_trace(False)
     
     vapc_available_features = [
-        "count", "density", "covariance", "eigenvalues", 
-        "linearity", "planarity", "sphericity", "sum_of_eigenvalues", 
-        "omnivariance", "eigenentropy", "anisotropy", "surface_variation"
+        "count",
+        "density",
+        "centroid",
+        "voxel_center",
+        "local_centroid",
+        "covariance",
+        "closest_to_voxel_centers",
+        "closest_to_centroids",
+        "eigenvalues",
+        "linearity",
+        "planarity",
+        "sphericity",
+        "sum_of_eigenvalues",
+        "omnivariance",
+        "eigenentropy",
+        "anisotropy",
+        "surface_variation",
     ]
 
     if len(feature_names) == 0:
         feature_names = vapc_available_features
     
     sel_feats = [f for f in feature_names if f in vapc_available_features]
+    invalid_features = [f for f in feature_names if f not in vapc_available_features]
+    if invalid_features:
+        warnings.warn(
+            f"Unsupported VAPC features ignored: {invalid_features}. "
+            f"Available features: {vapc_available_features}",
+            UserWarning,
+        )
+    if len(sel_feats) == 0:
+        raise ValueError(
+            "No valid VAPC features selected. "
+            f"Available features: {vapc_available_features}"
+        )
 
     epoch = py4dgeo.Epoch(point_cloud.coords)
     vapc = py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
-    vapc.compute_features(feature_names = sel_feats)  # compute features using VAPC's method
-    # store computed features in point_cloud.geometric_features with appropriate keys
-    for feat_name in vapc_available_features:
-        if hasattr(vapc, feat_name):
-            point_cloud.geometric_features[f"vapc_{feat_name}_v{voxel_size}"] = getattr(vapc, feat_name)
+    vapc.compute_features(feature_names=sel_feats)  # populates vapc.out
+
+    # Persist voxel grid metadata and any computed density for convenience.
+    point_cloud.voxel_size = voxel_size
+    point_cloud.voxel_origin = voxel_origin
+    point_cloud.voxel_coords = vapc.unique_voxels
+    if "density" in vapc.out:
+        point_cloud.voxel_density = vapc.out["density"]
+
+    # Store computed VAPC outputs under geometric_features.
+    for feat_name, feat_data in vapc.out.items():
+        point_cloud.geometric_features[f"{feat_name}_v{voxel_size}"] = feat_data
