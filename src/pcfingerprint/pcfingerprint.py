@@ -6,6 +6,7 @@ from pcfingerprint.geometric_features import (
     compute_point_density_jakteristics,
     compute_geom_feat_jakteristics,
     compute_point_density_pgeof,
+    compute_point_density_vapc,
 )
 from pcfingerprint.report import generate_report
 from pcfingerprint.utils import shift_to_zero, standardize, scale_robust
@@ -38,7 +39,8 @@ class PointCloud:
         self.normal_radius = None  # radius used for normal estimation
         self.geometric_features = {}  # dict of feature name to float array
         self.voxel_size = None  # size of voxels (float)
-        self.voxel_indices = None  # Nx3 array of voxel indices (int)
+        self.voxel_origin = None  # Nx3 array of voxel origin (int)
+        self.voxel_density = None  # float array
         self.is_outlier = None  # boolean array
 
     def shift_z_to_zero(self):
@@ -285,6 +287,42 @@ class PointCloudPair:
                     compute_point_density_pgeof(sim_pc, radius, max_knn)
             else:
                 raise ValueError(f"Backend {backend} not supported.")
+
+    def compute_voxel_density(self, voxel_size: float, voxel_origin=None):
+        """
+        Compute voxel-based point density for all point clouds in the pair.
+
+        :param voxel_size: Voxel edge length used for voxel-based density computation.
+        :type voxel_size: float
+        :param voxel_origin: Optional voxel grid origin passed to the VAPC backend.
+        :type voxel_origin: array-like, optional
+        """
+        if voxel_size is None:
+            raise ValueError("voxel_size must be provided for voxel density computation.")
+
+        voxel_size = np.round(voxel_size, 3)
+        self.voxel_size = voxel_size
+        if voxel_origin is not None:
+            self.voxel_origin = voxel_origin
+
+        # check if voxel density already computed
+        if (
+            self.real_world.voxel_density is not None
+            and self.real_world.voxel_size == voxel_size
+            and all(
+                sim_pc.voxel_density is not None and sim_pc.voxel_size == voxel_size
+                for sim_pc in self.simulated
+            )
+        ):
+            return  # voxel density already computed
+
+        compute_point_density_vapc(self.real_world, self.voxel_size, self.voxel_origin)
+        self.real_world.voxel_size = self.voxel_size
+        self.real_world.voxel_origin = self.voxel_origin
+        for sim_pc in self.simulated:
+            compute_point_density_vapc(sim_pc, self.voxel_size, self.voxel_origin)
+            sim_pc.voxel_size = self.voxel_size
+            sim_pc.voxel_origin = self.voxel_origin
 
     def compute_geometric_features(
         self,
