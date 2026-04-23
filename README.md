@@ -21,6 +21,7 @@ mamba create -n pcfingerprint python=3.13
 The following sequence of commands is used to install `pcfingerprint` from source using pip. It is recommended to do this in a virtual environment.
 
 ```bash
+mamba activate pcfingerprint
 git clone https://github.com/3dgeo-heidelberg/pcfingerprint.git
 cd pcfingerprint
 python -m pip install -v --editable .
