@@ -32,7 +32,7 @@ assert (
 report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
-    output_path=report_folder / "test_report.html",
+    output_folder=report_folder,
     attribute_list=["z", "point_density", "linearity"],
     summary_statistics=True,
     return_number_metrics=True,
@@ -49,7 +49,7 @@ pc_pair_filtered = pc_pair.filter_by_class([1])  # filter to only class 1
 report_folder_class1 = Path("output_report_tls_virtual_forest_class1")
 # generate report only for one class
 pc_pair_filtered.generate_report(
-    output_path=report_folder_class1 / "test_report.html",
+    output_folder=report_folder_class1,
     attribute_list=["z", "point_density", "linearity"],
     summary_statistics=True,
     return_number_metrics=True,
