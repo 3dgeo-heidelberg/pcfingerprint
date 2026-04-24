@@ -429,7 +429,7 @@ class PointCloudPair:
 
     def generate_report(
         self,
-        output_path: str,
+        output_folder: str,
         attribute_list: list[str],
         summary_statistics: bool = True,
         return_number_metrics: bool = False,
@@ -447,7 +447,7 @@ class PointCloudPair:
         generate_report(
             self.real_world,
             simulated,
-            output_path,
+            output_folder,
             attribute_list,
             summary_statistics=summary_statistics,
             return_number_metrics=return_number_metrics,

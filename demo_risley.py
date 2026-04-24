@@ -10,7 +10,7 @@ pc_pair.load_simulated(list(data_folder.glob("avia*.las")))
 
 # generate project report
 pc_pair.generate_report(
-    output_path=report_folder / "test_report.html",
+    output_folder=report_folder,
     attribute_list=["gps_time"],
     summary_statistics=True,
     visualizations=[

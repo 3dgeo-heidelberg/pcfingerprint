@@ -4,6 +4,7 @@ Module for generating comparison reports between point clouds.
 
 from typing import Union, Optional, List
 from pathlib import Path
+from functools import partial
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -19,6 +20,9 @@ from numerous.html_report_generator import (
 from numerous.html_report_generator.components.figure import Figure
 from numerous.html_report_generator.abstract import ReportInterface
 import pcfingerprint
+import webbrowser
+import http.server
+import socketserver
 
 
 def wrap_div(html, class_=None):
@@ -35,6 +39,33 @@ def wrap_div(html, class_=None):
         return f"<div class='{class_}'>\n{html}\n</div>\n"
     else:
         return f"<div>\n{html}\n</div>\n"
+
+
+def serve_report_folder(output_folder: str, open_browser: bool = True):
+    """Serve a generated report folder over HTTP.
+
+    :param output_folder: Folder containing the generated report files.
+    :type output_folder: str
+    :param open_browser: Whether to open the report URL in a web browser.
+    :type open_browser: bool
+    :return: None
+    :rtype: None
+    """
+    folder = Path(output_folder).resolve()
+    handler = partial(http.server.SimpleHTTPRequestHandler, directory=str(folder))
+
+    with socketserver.TCPServer(("", 0), handler) as httpd:
+        port = httpd.server_address[1]
+        url = f"http://localhost:{port}/index.html"
+        print(f"Starting server on {url}")
+
+        if open_browser:
+            webbrowser.open(url)
+
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nServer stopped.")
 
 
 class MatplotlibFigure(Figure):
@@ -174,20 +205,21 @@ class MatplotlibFigureSelection(Figure):
 def generate_report(
     real_pc,
     sim_pcs: list,
-    output_path: str,
+    output_folder: str,
     attribute_list: list[str],
     summary_statistics: bool = True,
     return_number_metrics: bool = False,
     visualizations: list[str] = ["histogram"],
     vis_backend: str = "matplotlib",
+    preview: bool = True,
 ):
     """Generate an HTML report comparing real and simulated point clouds.
 
     :param real_pc: Reference point cloud object.
     :param sim_pcs: Simulated point cloud objects to compare against ``real_pc``.
     :type sim_pcs: list
-    :param output_path: Output path for the generated HTML report.
-    :type output_path: str
+    :param output_folder: Output folder for the generated HTML report.
+    :type output_folder: str
     :param attribute_list: Point attributes to analyze and visualize.
     :type attribute_list: list[str]
     :param summary_statistics: Whether to include summary statistics tables.
@@ -198,16 +230,17 @@ def generate_report(
     :type visualizations: list[str]
     :param vis_backend: Visualization backend to use.
     :type vis_backend: str
+    :param preview: Whether to start a local web server and open the report in a browser.
+    :type preview: bool
     :raises NotImplementedError: If an unsupported visualization backend is requested.
     :return: None
     :rtype: None
     """
 
     # Create report
-    folder = Path(output_path).parent
-    filename = Path(output_path).stem + ".html"
+    filename = "index.html"
     report = Report(
-        target_folder=folder,
+        target_folder=output_folder,
         filename=filename,
         template="src/pcfingerprint/templates/report_template_fingerprint.html",
     )
@@ -467,3 +500,6 @@ def generate_report(
 
     # Save the report - creates the html output file
     report.save()
+
+    if preview:
+        serve_report_folder(output_folder=output_folder, open_browser=True)
