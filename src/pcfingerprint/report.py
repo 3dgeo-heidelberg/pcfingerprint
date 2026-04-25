@@ -273,6 +273,7 @@ def generate_report(
     # section for 3D scatter plot
     if "3d_scatter" in visualizations:
         section = Section(section_title=f"3D Scatter Plot Comparison")
+        scatter_tabs = Tabs()
         # generate 3d scatter plot
         if vis_backend == "matplotlib":
             # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
@@ -282,20 +283,19 @@ def generate_report(
                 plot_attribute_list = ["z"]
             else:
                 plot_attribute_list = attribute_list
-            imgs = {}
+            tab_content_scatter = {}
             for attribute in plot_attribute_list:
                 fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
-                # convert fig to base64
+                # save the figure to a file in the report folder and add it to the report
                 img_file = report.target_folder / Path(f"3d_scatter_{attribute}.png")
                 fig.savefig(img_file, format="png")
                 plt.close(fig)
-                imgs[attribute] = img_file
-            figure_selection = MatplotlibFigureSelection(
-                image_names=list(imgs.values()),
-                image_labels=list(imgs.keys()),
-                caption="3D Scatter Plot Comparison",
-            )
-            section.add_content({"3d_scatter_plot": figure_selection})
+                tab_content_scatter[attribute] = MatplotlibFigure(
+                    image_name=img_file,
+                    caption=f"3D scatter plot colored by {attribute}",
+                )
+            scatter_tabs.set_tabs(tab_content_scatter)
+            section.add_content({"3d_scatter_plot": scatter_tabs})
         else:
             # other backends not supported yet
             raise NotImplementedError(
