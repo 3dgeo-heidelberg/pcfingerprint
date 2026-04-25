@@ -280,7 +280,7 @@ def generate_report(
     if "3d_scatter" in visualizations:
         section = Section(section_title=f"3D Scatter Plot Comparison")
         # generate 3d scatter plot
-        if vis_backend == "matplotlib":
+        if vis_backend == "matplotlib" or vis_backend == "plotly":
             # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
             from pcfingerprint.vis_matplotlib import plot_3d_scatter
 
@@ -405,6 +405,19 @@ def generate_report(
                     caption=f"Histogram of {attribute}",
                 )
                 section_content["histogram"] = figure_selection
+            elif vis_backend == "plotly":
+                from pcfingerprint.vis_plotly import plot_histogram
+
+                imgs = []
+                for norm, norm_str in ((False, "frequency"), (True, "density")):
+
+                    fig = plot_histogram(
+                        real_pc, sim_pcs, attribute, overlay=overlay, normalize=False
+                    )
+
+                section_content["histogram"] = Div(
+                    f'<iframe src="{attribute}_histogram.html" width="100%" height="600px" style="border:none;"></iframe>'
+                )
             else:
                 # other backends not supported yet
                 raise NotImplementedError(
