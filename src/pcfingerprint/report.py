@@ -280,7 +280,7 @@ def generate_report(
     if "3d_scatter" in visualizations:
         section = Section(section_title=f"3D Scatter Plot Comparison")
         # generate 3d scatter plot
-        if vis_backend == "matplotlib" or vis_backend == "plotly":
+        if vis_backend == "matplotlib":
             # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
             from pcfingerprint.vis_matplotlib import plot_3d_scatter
 
@@ -300,6 +300,26 @@ def generate_report(
                 image_names=list(imgs.values()),
                 image_labels=list(imgs.keys()),
                 caption="3D Scatter Plot Comparison",
+            )
+            section.add_content({"3d_scatter_plot": figure_selection})
+        elif vis_backend == "plotly":
+            from pcfingerprint.vis_plotly import (
+                plot_3d_scatter,
+                write_html_with_linked_3d_camera,
+            )
+
+            if len(attribute_list) == 0:
+                plot_attribute_list = ["z"]
+            else:
+                plot_attribute_list = attribute_list
+            figs = {}
+            for attribute in plot_attribute_list:
+                fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
+                fig_file = report.target_folder / Path(f"3d_scatter_{attribute}.html")
+                write_html_with_linked_3d_camera(fig, fig_file)
+                figs[attribute] = fig_file
+            figure_selection = Div(
+                f'<iframe src="{list(figs.values())[0].name}" width="100%" height="600px" style="border:none;"></iframe>'
             )
             section.add_content({"3d_scatter_plot": figure_selection})
         else:
