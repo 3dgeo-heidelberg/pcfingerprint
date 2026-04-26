@@ -2,20 +2,13 @@
 Module for generating comparison reports between point clouds.
 """
 
-from typing import Union, Optional, List
+from typing import Optional, List
 from pathlib import Path
 from functools import partial
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from numerous.html_report_generator import (
-    Report,
-    Section,
-    Subsection,
-    Tabs,
-    Card,
-    DataFrameTable,
-)
+from numerous.html_report_generator import Report, Section, Tabs, DataFrameTable, Div
 from numerous.html_report_generator.components.figure import Figure
 from numerous.html_report_generator.abstract import ReportInterface
 import pcfingerprint
@@ -164,7 +157,7 @@ class FigureSelection(Figure):
             selected = "selected" if i == 0 else ""
             options_html += f'<option value="{i}" {selected}>{label}</option>\n'
 
-        # Create the content tags - FIRST BLOCK, OTHERS NONE
+        # Create the content tags
         images_html = ""
         for i, figure_path in enumerate(self.figure_paths):
             display_style = "block" if i == 0 else "none"
@@ -251,6 +244,8 @@ def generate_report(
     :return: None
     :rtype: None
     """
+    if summary_statistics or return_number_metrics:
+        from pcfingerprint import stats
 
     # Create report
     filename = "index.html"
@@ -294,6 +289,7 @@ def generate_report(
     # section for 3D scatter plot
     if "3d_scatter" in visualizations:
         section = Section(section_title=f"3D Scatter Plot Comparison")
+        scatter_tabs = Tabs()
         # generate 3d scatter plot
         if vis_backend == "matplotlib":
             # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
@@ -303,10 +299,10 @@ def generate_report(
                 plot_attribute_list = ["z"]
             else:
                 plot_attribute_list = attribute_list
-            imgs = {}
+            tab_content_scatter = {}
             for attribute in plot_attribute_list:
                 fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
-                # convert fig to base64
+                # save the figure to a file in the report folder and add it to the report
                 img_file = report.target_folder / Path(f"3d_scatter_{attribute}.png")
                 fig.savefig(img_file, format="png")
                 plt.close(fig)
@@ -347,10 +343,12 @@ def generate_report(
             )
         block_content["section_3d_scatter"] = section
 
-    # Add a section for each attribute
+    # Section for attribute comparisons
+    section = Section(section_title=f"Attribute Comparisons")
+    attr_tab_tables = Tabs()
+    attr_tab_hists = Tabs()
+    attr_tab_hists_per_class = Tabs()
     for attribute in attribute_list:
-        section = Section(section_title=f"Comparing {attribute}")
-
         # extract data for attribute
         real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
         sim_data = []
@@ -359,11 +357,11 @@ def generate_report(
                 pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute)
             )
 
-        section_content = {}
+        tab_content_tables = {}
+        tab_content_hists = {}
+        tab_content_hists_per_class = {}
 
         if summary_statistics:
-            from pcfingerprint import stats
-
             # compute summary statistics
             stats_real = stats.compute_statistics(real_data)
             stats_sim = [stats.compute_statistics(data) for data in sim_data]
@@ -412,7 +410,7 @@ def generate_report(
                 df, caption="Summary statistics for attribute: " + attribute
             )
 
-            section_content["summary_stat_table"] = table
+            tab_content_tables[attribute] = table
 
         if "histogram" in visualizations or "histogram_overlay" in visualizations:
             if "histogram_overlay" in visualizations:
@@ -462,7 +460,7 @@ def generate_report(
                     render_mode="iframe",
                     caption=f"Histogram of {attribute}",
                 )
-                section_content["histogram"] = figure_selection
+                tab_content_hists[attribute] = figure_selection
             else:
                 # other backends not supported yet
                 raise NotImplementedError(
@@ -495,12 +493,7 @@ def generate_report(
                         figure_labels=image_labels,
                         caption=f"Histogram of {attribute} per class",
                     )
-                    section_content["histogram per class"] = figure_selection
-            elif vis_backend == "plotly":
-                from pcfingerprint.vis_matplotlib import plot_histogram_per_class
-
-                # TODO
-
+                    tab_content_hists_per_class[attribute] = figure_selection
             else:
                 # other backends not supported yet
                 raise NotImplementedError(
@@ -508,14 +501,27 @@ def generate_report(
                 )
 
         # Add the figure and table to the section
-        section.add_content(section_content)
-
-        block_content[f"section_{attribute}"] = section
+        attr_tab_tables.add_tabs(tab_content_tables)
+        attr_tab_hists.add_tabs(tab_content_hists)
+        attr_tab_hists_per_class.add_tabs(tab_content_hists_per_class)
+    # add the tabs to the section if they contain any content
+    if len(attr_tab_tables.tabs) > 0:
+        section.add_content({"attribute_tables": attr_tab_tables})
+    if len(attr_tab_hists.tabs) > 0:
+        section.add_content({"attribute_histograms": attr_tab_hists})
+    if len(attr_tab_hists_per_class.tabs) > 0:
+        section.add_content(
+            {"attribute_histograms_per_class": attr_tab_hists_per_class}
+        )
+    if not (
+        len(attr_tab_tables.tabs) == 0
+        and len(attr_tab_hists.tabs) == 0
+        and len(attr_tab_hists_per_class.tabs) == 0
+    ):
+        block_content[f"section_attribute_comparisons"] = section
 
     # section for return number metrics
     if return_number_metrics:
-        from pcfingerprint import stats
-
         section = Section(section_title=f"Return Number Metrics")
 
         # compute return number statistics
