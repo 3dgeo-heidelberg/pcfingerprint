@@ -12,7 +12,6 @@ from numerous.html_report_generator import (
     Report,
     Section,
     Subsection,
-    Div,
     Tabs,
     Card,
     DataFrameTable,
@@ -108,39 +107,46 @@ class MatplotlibFigure(Figure):
         return html
 
 
-class MatplotlibFigureSelection(Figure):
+class FigureSelection(Figure):
     """
-    Class representing a set of matplotlib figures in the report with a dropdown menu to switch between
+    Class representing a set of figures in the report with a dropdown menu to switch between.
+    Supports either image files (matplotlib) or HTML iframes (plotly).
     """
 
     def __init__(
         self,
-        image_names: List[Path],
-        image_labels: List[str],
+        figure_paths: List[Path],
+        figure_labels: List[str],
+        render_mode: str = "image",
         caption: str = "",
         notes: Optional[list[str]] = None,
     ):
         """Initialize a dropdown-controlled figure selection.
 
-        :param image_names: Paths to images available in the selector.
-        :type image_names: list[pathlib.Path]
-        :param image_labels: Labels shown for each selectable image.
-        :type image_labels: list[str]
+        :param figure_paths: Paths to files available in the selector.
+        :type figure_paths: list[pathlib.Path]
+        :param figure_labels: Labels shown for each selectable file.
+        :type figure_labels: list[str]
+        :param render_mode: Rendering mode, either ``image`` or ``iframe``.
+        :type render_mode: str
         :param caption: Caption text for the figure block.
         :type caption: str
         :param notes: Optional notes to include with the caption.
         :type notes: list[str] | None
-        :raises ValueError: If image and label counts differ or no images are provided.
+        :raises ValueError: If file and label counts differ, no files are provided, or mode is invalid.
         """
         super().__init__(caption, notes)
 
-        if len(image_names) != len(image_labels):
-            raise ValueError("image_names and image_labels must have the same length")
-        if len(image_names) == 0:
-            raise ValueError("At least one image must be provided")
+        if len(figure_paths) != len(figure_labels):
+            raise ValueError("figure_paths and figure_labels must have the same length")
+        if len(figure_paths) == 0:
+            raise ValueError("At least one figure must be provided")
+        if render_mode not in ("image", "iframe"):
+            raise ValueError("render_mode must be either 'image' or 'iframe'")
 
-        self.image_names = image_names
-        self.image_labels = image_labels
+        self.figure_paths = figure_paths
+        self.figure_labels = figure_labels
+        self.render_mode = render_mode
 
     def _as_html_figure_content(self, report: ReportInterface) -> str:
         """Render figure-selection HTML with dropdown and switchable images.
@@ -154,20 +160,29 @@ class MatplotlibFigureSelection(Figure):
 
         # Create the dropdown options
         options_html = ""
-        for i, label in enumerate(self.image_labels):
+        for i, label in enumerate(self.figure_labels):
             selected = "selected" if i == 0 else ""
             options_html += f'<option value="{i}" {selected}>{label}</option>\n'
 
-        # Create the image tags - FIRST IMAGE BLOCK, OTHERS NONE
+        # Create the content tags - FIRST BLOCK, OTHERS NONE
         images_html = ""
-        for i, name in enumerate(self.image_names):
-            display_style = "block" if i == 0 else "none"  # <-- This is the key fix
-            images_html += f"""
+        for i, figure_path in enumerate(self.figure_paths):
+            display_style = "block" if i == 0 else "none"
+            if self.render_mode == "image":
+                images_html += f"""
                 <img id="{element_id}_img_{i}"
-                    src="{name.name}"
-                    alt="{self.image_labels[i]}"
+                    src="{figure_path.name}"
+                    alt="{self.figure_labels[i]}"
                     style="max-width: 100%; display: {display_style};" />
-            """
+                """
+            else:
+                images_html += f"""
+                <iframe id="{element_id}_img_{i}"
+                    src="{figure_path.name}"
+                    width="100%"
+                    height="600px"
+                    style="border:none; display: {display_style};"></iframe>
+                """
 
         html = f"""
         <br><br>
@@ -187,7 +202,7 @@ class MatplotlibFigureSelection(Figure):
 
         <script>
         function switchImage_{element_id}(index) {{
-            for (let i = 0; i < {len(self.image_names)}; i++) {{
+            for (let i = 0; i < {len(self.figure_paths)}; i++) {{
                 let img = document.getElementById('{element_id}_img_' + i);
                 if (img) img.style.display = i == parseInt(index) ? 'block' : 'none';
             }}
@@ -296,9 +311,9 @@ def generate_report(
                 fig.savefig(img_file, format="png")
                 plt.close(fig)
                 imgs[attribute] = img_file
-            figure_selection = MatplotlibFigureSelection(
-                image_names=list(imgs.values()),
-                image_labels=list(imgs.keys()),
+            figure_selection = FigureSelection(
+                figure_paths=list(imgs.values()),
+                figure_labels=list(imgs.keys()),
                 caption="3D Scatter Plot Comparison",
             )
             section.add_content({"3d_scatter_plot": figure_selection})
@@ -318,8 +333,11 @@ def generate_report(
                 fig_file = report.target_folder / Path(f"3d_scatter_{attribute}.html")
                 write_html_with_linked_3d_camera(fig, fig_file)
                 figs[attribute] = fig_file
-            figure_selection = Div(
-                f'<iframe src="{list(figs.values())[0].name}" width="100%" height="600px" style="border:none;"></iframe>'
+            figure_selection = FigureSelection(
+                figure_paths=list(figs.values()),
+                figure_labels=list(figs.keys()),
+                render_mode="iframe",
+                caption="3D Scatter Plot Comparison",
             )
             section.add_content({"3d_scatter_plot": figure_selection})
         else:
@@ -419,25 +437,32 @@ def generate_report(
                     imgs.append((norm_str, img_file))
                 image_labels = [label for label, _ in imgs]
                 image_names = [path for _, path in imgs]
-                figure_selection = MatplotlibFigureSelection(
-                    image_names=image_names,
-                    image_labels=image_labels,
+                figure_selection = FigureSelection(
+                    figure_paths=image_names,
+                    figure_labels=image_labels,
                     caption=f"Histogram of {attribute}",
                 )
                 section_content["histogram"] = figure_selection
             elif vis_backend == "plotly":
                 from pcfingerprint.vis_plotly import plot_histogram
 
-                imgs = []
+                figs = []
                 for norm, norm_str in ((False, "frequency"), (True, "density")):
-
                     fig = plot_histogram(
-                        real_pc, sim_pcs, attribute, overlay=overlay, normalize=False
+                        real_pc, sim_pcs, attribute, overlay=overlay, normalize=norm
                     )
-
-                section_content["histogram"] = Div(
-                    f'<iframe src="{attribute}_histogram.html" width="100%" height="600px" style="border:none;"></iframe>'
+                    fig_file = report.target_folder / Path(
+                        f"{attribute}_histogram_{norm_str}.html"
+                    )
+                    fig.write_html(fig_file)
+                    figs.append((norm_str, fig_file))
+                figure_selection = FigureSelection(
+                    figure_paths=[path for _, path in figs],
+                    figure_labels=[label for label, _ in figs],
+                    render_mode="iframe",
+                    caption=f"Histogram of {attribute}",
                 )
+                section_content["histogram"] = figure_selection
             else:
                 # other backends not supported yet
                 raise NotImplementedError(
@@ -465,9 +490,9 @@ def generate_report(
                 if len(imgs) > 0:
                     image_labels = [label for label, _ in imgs]
                     image_names = [path for _, path in imgs]
-                    figure_selection = MatplotlibFigureSelection(
-                        image_names=image_names,
-                        image_labels=image_labels,
+                    figure_selection = FigureSelection(
+                        figure_paths=image_names,
+                        figure_labels=image_labels,
                         caption=f"Histogram of {attribute} per class",
                     )
                     section_content["histogram per class"] = figure_selection
