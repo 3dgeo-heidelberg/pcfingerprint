@@ -256,7 +256,7 @@ def plot_histogram(
         fig.add_trace(
             go.Histogram(
                 x=real_data,
-                histnorm="density" if normalize else None,
+                histnorm="probability density" if normalize else None,
                 name="Real World Point Cloud",
                 marker_color="blue",
                 opacity=0.7,
@@ -268,7 +268,7 @@ def plot_histogram(
             fig.add_trace(
                 go.Histogram(
                     x=data,
-                    histnorm="density" if normalize else None,
+                    histnorm="probability density" if normalize else None,
                     name=f"Simulated Point Cloud {i+1}",
                     marker_color=color,
                     opacity=0.3,

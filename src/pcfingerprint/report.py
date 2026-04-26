@@ -100,6 +100,43 @@ class MatplotlibFigure(Figure):
         return html
 
 
+class IFrameFigure(Figure):
+    """Class representing an HTML iframe-based figure in the report."""
+
+    def __init__(
+        self,
+        html_name: Path = None,
+        caption: str = "",
+        notes: Optional[list[str]] = None,
+    ):
+        """Initialize an iframe-backed report figure.
+
+        :param html_name: Path to the HTML file rendered in the iframe.
+        :type html_name: pathlib.Path | None
+        :param caption: Caption text for the figure.
+        :type caption: str
+        :param notes: Optional notes to include with the caption.
+        :type notes: list[str] | None
+        """
+        super(IFrameFigure, self).__init__(caption, notes)
+        self.html_name = html_name
+
+    def _as_html_figure_content(self, report: ReportInterface):
+        """Render the iframe figure as HTML content.
+
+        :param report: Report instance used for figure numbering.
+        :type report: ReportInterface
+        :return: HTML fragment for embedding the iframe.
+        :rtype: str
+        """
+        html = f"""
+                <div style='display: inline-flex; width: 100%;'>
+                    <iframe src="{self.html_name.name}" title="Figure {report.figure_number}" width="100%" height="600px" style="border:none;"></iframe>
+                </div>
+                """
+        return html
+
+
 class FigureSelection(Figure):
     """
     Class representing a set of figures in the report with a dropdown menu to switch between.
@@ -290,57 +327,50 @@ def generate_report(
     if "3d_scatter" in visualizations:
         section = Section(section_title=f"3D Scatter Plot Comparison")
         scatter_tabs = Tabs()
+        if len(attribute_list) == 0:
+            plot_attribute_list = ["z"]
+        else:
+            plot_attribute_list = attribute_list
+        tab_content_scatter = {}
+
         # generate 3d scatter plot
         if vis_backend == "matplotlib":
             # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
             from pcfingerprint.vis_matplotlib import plot_3d_scatter
 
-            if len(attribute_list) == 0:
-                plot_attribute_list = ["z"]
-            else:
-                plot_attribute_list = attribute_list
-            tab_content_scatter = {}
             for attribute in plot_attribute_list:
                 fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
                 # save the figure to a file in the report folder and add it to the report
                 img_file = report.target_folder / Path(f"3d_scatter_{attribute}.png")
                 fig.savefig(img_file, format="png")
                 plt.close(fig)
-                imgs[attribute] = img_file
-            figure_selection = FigureSelection(
-                figure_paths=list(imgs.values()),
-                figure_labels=list(imgs.keys()),
-                caption="3D Scatter Plot Comparison",
-            )
-            section.add_content({"3d_scatter_plot": figure_selection})
+                tab_content_scatter[attribute] = MatplotlibFigure(
+                    image_name=img_file,
+                    caption=f"3D scatter plot colored by {attribute}",
+                )
         elif vis_backend == "plotly":
             from pcfingerprint.vis_plotly import (
                 plot_3d_scatter,
                 write_html_with_linked_3d_camera,
             )
 
-            if len(attribute_list) == 0:
-                plot_attribute_list = ["z"]
-            else:
-                plot_attribute_list = attribute_list
-            figs = {}
             for attribute in plot_attribute_list:
                 fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
                 fig_file = report.target_folder / Path(f"3d_scatter_{attribute}.html")
                 write_html_with_linked_3d_camera(fig, fig_file)
-                figs[attribute] = fig_file
-            figure_selection = FigureSelection(
-                figure_paths=list(figs.values()),
-                figure_labels=list(figs.keys()),
-                render_mode="iframe",
-                caption="3D Scatter Plot Comparison",
-            )
-            section.add_content({"3d_scatter_plot": figure_selection})
+                tab_content_scatter[attribute] = IFrameFigure(
+                    html_name=fig_file,
+                    caption=f"3D scatter plot colored by {attribute}",
+                )
         else:
             # other backends not supported yet
             raise NotImplementedError(
                 f"Visualization backend {vis_backend} not supported for 3D scatter plot."
             )
+
+        if len(tab_content_scatter) > 0:
+            scatter_tabs.add_tabs(tab_content_scatter)
+            section.add_content({"3d_scatter_tabs": scatter_tabs})
         block_content["section_3d_scatter"] = section
 
     # Section for attribute comparisons
@@ -440,7 +470,7 @@ def generate_report(
                     figure_labels=image_labels,
                     caption=f"Histogram of {attribute}",
                 )
-                section_content["histogram"] = figure_selection
+                tab_content_hists[attribute] = figure_selection
             elif vis_backend == "plotly":
                 from pcfingerprint.vis_plotly import plot_histogram
 
@@ -494,6 +524,30 @@ def generate_report(
                         caption=f"Histogram of {attribute} per class",
                     )
                     tab_content_hists_per_class[attribute] = figure_selection
+            elif vis_backend == "plotly":
+                from pcfingerprint.vis_plotly import plot_histogram_per_class
+
+                figure_paths = []
+                figure_labels = []
+                for norm, norm_str in ((False, "frequency"), (True, "density")):
+                    figs, classes = plot_histogram_per_class(
+                        real_pc, sim_pcs, attribute, normalize=norm
+                    )
+                    for fig, class_val in zip(figs, classes):
+                        fig_file = report.target_folder / Path(
+                            f"{attribute}_histogram_class{class_val}_{norm_str}.html"
+                        )
+                        fig.write_html(fig_file)
+                        figure_paths.append(fig_file)
+                        figure_labels.append(f"class_{class_val}_{norm_str}")
+                if len(figure_paths) > 0:
+                    figure_selection = FigureSelection(
+                        figure_paths=figure_paths,
+                        figure_labels=figure_labels,
+                        render_mode="iframe",
+                        caption=f"Histogram of {attribute} per class",
+                    )
+                    tab_content_hists_per_class[f"{attribute}"] = figure_selection
             else:
                 # other backends not supported yet
                 raise NotImplementedError(
