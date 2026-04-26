@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from jinja2 import Template
 import pcfingerprint
-from pcfingerprint.utils import subsample_points
+from pcfingerprint.utils import subsample_points, _validate_classes
 
 
 def _linked_3d_camera_post_script() -> str:
@@ -342,3 +342,52 @@ def plot_histogram(
         fig.update_layout(template="plotly_white", showlegend=False)
 
         return fig
+
+
+def plot_histogram_per_class(
+    real_pc, sim_pcs: list, attribute: str, bins: int = 100, normalize: bool = False
+):
+    """
+    Plot histograms of an attribute for real and simulated point clouds side by side, separated by class.
+    If a class is present in the real point cloud but not in any of the simulated point clouds, or vice versa,
+    there will be one empty histogram.
+
+    :param real_pc: PointCloud object representing the real-world point cloud
+    :param sim_pcs: List of PointCloud objects representing the simulated point clouds
+    :param attribute: Name of the attribute to plot
+    :type attribute: str
+    :param bins: Number of bins for the histogram
+    :type bins: int
+    :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
+    :type normalize: bool
+    """
+
+    _validate_classes(real_pc)
+    for sim_pc in sim_pcs:
+        _validate_classes(sim_pc)
+
+    classes = np.unique(real_pc.classification)
+
+    figs = []
+    for sim_pc in sim_pcs:
+        sim_classes = np.unique(sim_pc.classification)
+        classes = np.union1d(classes, sim_classes)
+    for class_value in classes:
+        class_filter_real = real_pc.classification == class_value
+        class_filters_sim = [sim_pc.classification == class_value for sim_pc in sim_pcs]
+        hist_real_world_class = real_pc.mask(class_filter_real)
+        hist_simulated_class = [
+            sim_pc.mask(class_filters_sim[i]) for i, sim_pc in enumerate(sim_pcs)
+        ]
+        fig = plot_histogram(
+            hist_real_world_class,
+            hist_simulated_class,
+            attribute=attribute,
+            bins=bins,
+            overlay=True,
+            normalize=normalize,
+        )
+        fig.update_layout(title_text=f"Class {class_value}")
+        figs.append(fig)
+
+    return figs, classes

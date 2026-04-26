@@ -4,7 +4,7 @@ Module for visualisations on comparisons between point clouds.
 
 import matplotlib.pyplot as plt
 import pcfingerprint
-from pcfingerprint.utils import subsample_points
+from pcfingerprint.utils import subsample_points, _validate_classes
 import numpy as np
 
 plt.rcParams["axes.spines.right"] = False
@@ -331,18 +331,6 @@ def plot_histogram_per_class(
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
-
-    def _validate_classes(pc):
-        try:
-            getattr(pc, "classification")
-        except AttributeError:
-            raise ValueError(
-                f"Point cloud does not have 'classification' attribute, cannot plot histogram per class."
-            )
-        if pc.classification is None or len(pc.classification) == 0:
-            raise ValueError(
-                f"Point cloud has empty 'classification' attribute, cannot plot histogram per class."
-            )
 
     _validate_classes(real_pc)
     for sim_pc in sim_pcs:

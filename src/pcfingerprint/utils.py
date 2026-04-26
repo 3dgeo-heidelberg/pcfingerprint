@@ -64,3 +64,16 @@ def subsample_points(pc, max_n_points: int = 500_000):
     else:
         indices = np.arange(num_points)
     return pc, indices
+
+
+def _validate_classes(pc):
+    try:
+        getattr(pc, "classification")
+    except AttributeError:
+        raise ValueError(
+            f"Point cloud does not have 'classification' attribute, cannot plot histogram per class."
+        )
+    if pc.classification is None or len(pc.classification) == 0:
+        raise ValueError(
+            f"Point cloud has empty 'classification' attribute, cannot plot histogram per class."
+        )

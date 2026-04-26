@@ -471,6 +471,11 @@ def generate_report(
                         caption=f"Histogram of {attribute} per class",
                     )
                     section_content["histogram per class"] = figure_selection
+            elif vis_backend == "plotly":
+                from pcfingerprint.vis_matplotlib import plot_histogram_per_class
+
+                # TODO
+
             else:
                 # other backends not supported yet
                 raise NotImplementedError(
