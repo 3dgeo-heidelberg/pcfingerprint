@@ -6,35 +6,39 @@ start_time = time.time()
 # load data
 data_folder = Path("data/forest")
 report_folder = Path("output_report_tls_virtual_forest")
-pc_pair = pcfingerprint.PointCloudPair(standardize_intensity=False, shift_z=True)
+class_mapping = {0: "low vegetation", 1: "ground", 2: "trunk"}
+pc_pair = pcfingerprint.PointCloudPair(
+    standardize_intensity=False, shift_z=True, class_mapping=class_mapping
+)
 pc_pair.load_real_world(data_folder / "plot_10_original_test.laz")
 pc_pair.load_simulated(list(data_folder.glob("plot_10_simulated_test.laz")))
 print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
 
-pdens_start_time = time.time()
-# compute point density and geometric features
-pc_pair.compute_point_density(radius=0.2, backend="jakteristics")
-print(f"Point density computed in {time.time() - pdens_start_time:.2f} seconds.")
+# pdens_start_time = time.time()
+## compute point density and geometric features
+# pc_pair.compute_point_density(radius=0.2, backend="jakteristics")
+# print(f"Point density computed in {time.time() - pdens_start_time:.2f} seconds.")
 
-geom_start_time = time.time()
-pc_pair.compute_geometric_features(
-    feature_names=["linearity"], radius=0.2, backend="pgeof"
-)
-print(f"Geometric features computed in {time.time() - geom_start_time:.2f} seconds.")
+# geom_start_time = time.time()
+# pc_pair.compute_geometric_features(
+#    feature_names=["linearity"], radius=0.2, backend="pgeof"
+# )
+# print(f"Geometric features computed in {time.time() - geom_start_time:.2f} seconds.")
 
-assert (
-    pc_pair.real_world.point_density is not None
-), "Point density not computed for real world point cloud."
-assert (
-    pc_pair.simulated[0].point_density is not None
-), "Point density not computed for simulated point cloud."
+# assert (
+#    pc_pair.real_world.point_density is not None
+# ), "Point density not computed for real world point cloud."
+# assert (
+#    pc_pair.simulated[0].point_density is not None
+# ), "Point density not computed for simulated point cloud."
 
 report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
     output_folder=report_folder,
-    attribute_list=["z", "point_density", "linearity"],
+    attribute_list=["z", "classification"],  # , "point_density", "linearity"],
     summary_statistics=True,
+    class_distribution=True,
     return_number_metrics=True,
     visualizations=[
         "histogram_overlay",

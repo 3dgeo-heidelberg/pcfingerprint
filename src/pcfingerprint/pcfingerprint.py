@@ -150,6 +150,7 @@ class PointCloudPair:
         shift_gps_time: bool = False,
         standardize_intensity: bool = False,
         robust_scale_intensity: bool = False,
+        class_mapping: dict[int, str] | None = None,
     ):
         self.real_world = PointCloud()
         # simulated is a list of PointClouds (minimum 1)
@@ -159,6 +160,7 @@ class PointCloudPair:
         self.shift_gps_time = shift_gps_time
         self.standardize_intensity = standardize_intensity
         self.robust_scale_intensity = robust_scale_intensity
+        self.class_mapping = class_mapping
 
     def drop_attributes(self):
         """
@@ -400,6 +402,7 @@ class PointCloudPair:
         output_folder: str,
         attribute_list: list[str],
         summary_statistics: bool = True,
+        class_distribution: bool = False,
         return_number_metrics: bool = False,
         visualizations: list[str] = ["histogram_overlay"],
         vis_backend: str = "matplotlib",
@@ -419,6 +422,8 @@ class PointCloudPair:
             attribute_list,
             summary_statistics=summary_statistics,
             return_number_metrics=return_number_metrics,
+            class_distribution=class_distribution,
+            class_mapping=self.class_mapping,
             visualizations=visualizations,
             vis_backend=vis_backend,
         )

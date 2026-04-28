@@ -286,6 +286,8 @@ def generate_report(
     attribute_list: list[str],
     summary_statistics: bool = True,
     return_number_metrics: bool = False,
+    class_distribution: bool = False,
+    class_mapping: Optional[dict[int, str]] = None,
     visualizations: list[str] = ["histogram"],
     vis_backend: str = "matplotlib",
     preview: bool = True,
@@ -303,6 +305,8 @@ def generate_report(
     :type summary_statistics: bool
     :param return_number_metrics: Whether to include return-number metrics.
     :type return_number_metrics: bool
+    :param class_distribution: Whether to include class distribution metrics.
+    :type class_distribution: bool
     :param visualizations: Visualization types to include.
     :type visualizations: list[str]
     :param vis_backend: Visualization backend to use.
@@ -566,12 +570,16 @@ def generate_report(
                         real_pc, sim_pcs, attribute, normalize=norm
                     )
                     for fig, class_val in zip(figs, classes):
+                        if class_mapping is not None and class_val in class_mapping:
+                            class_label = class_mapping[class_val]
+                        else:
+                            class_label = str(class_val)
                         fig_file = report.target_folder / Path(
-                            f"{attribute}_histogram_class{class_val}_{norm_str}.html"
+                            f"{attribute}_histogram_class{class_label}_{norm_str}.html"
                         )
                         fig.write_html(fig_file, config={"responsive": True})
                         figure_paths.append(fig_file)
-                        figure_labels.append(f"class_{class_val}_{norm_str}")
+                        figure_labels.append(f"class_{class_label}_{norm_str}")
                 if len(figure_paths) > 0:
                     figure_selection = FigureSelection(
                         figure_paths=figure_paths,
@@ -605,6 +613,49 @@ def generate_report(
         and len(attr_tab_hists_per_class.tabs) == 0
     ):
         block_content[f"section_attribute_comparisons"] = section
+
+    if class_distribution:
+        section = Section(section_title=f"Class Distribution Metrics")
+
+        # compute class distribution metrics
+        metrics_real = stats.compute_class_distribution_metrics(
+            real_pc.classification, class_mapping=class_mapping
+        )
+        metrics_sim = [
+            stats.compute_class_distribution_metrics(
+                sim_pc.classification, class_mapping=class_mapping
+            )
+            for sim_pc in sim_pcs
+        ]
+
+        # create a pandas dataframe from this
+        keys = metrics_real.keys()
+        df = pd.DataFrame(
+            {
+                "Metrics": keys,
+                f"Real": [metrics_real[k] for k in keys],
+            }
+        )
+        df["Real"] = df["Real"].astype(object)
+        # add a column for each simulated pc
+        for i, s_metrics in enumerate(metrics_sim):
+            df[f"Simulated {i+1}"] = [s_metrics[k] for k in keys]
+            df[f"Simulated {i+1}"] = df[f"Simulated {i+1}"].astype(object)
+        # row formatting
+        for k in keys:
+            if "fraction" in k:
+                df.loc[df["Metrics"] == k, df.columns != "Metrics"] = df.loc[
+                    df["Metrics"] == k, df.columns != "Metrics"
+                ].map(lambda x: f"{x:.3%}")
+            elif "number" in k:
+                # as integer with comma as thousand separator
+                df.loc[df["Metrics"] == k, df.columns != "Metrics"] = df.loc[
+                    df["Metrics"] == k, df.columns != "Metrics"
+                ].map(lambda x: f"{int(x):,}")
+        table = DataFrameTable(df, caption="Class Distribution Metrics")
+
+        section.add_content({"class_distribution_table": table})
+        block_content["section_class_distribution_metrics"] = section
 
     # section for return number metrics
     if return_number_metrics:

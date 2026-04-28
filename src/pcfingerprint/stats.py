@@ -96,3 +96,32 @@ def compute_return_number_metrics(return_number, number_of_returns) -> dict:
     }
 
     return metrics
+
+
+def compute_class_distribution_metrics(
+    class_labels, class_mapping: dict[int, str] | None = None
+) -> dict:
+    """
+    Function to compute simple class distribution metrics, including:
+    - number of points in each class
+    - fraction of points in each class
+
+    :param class_labels: Array of class labels
+    :type class_labels: sequence or np.ndarray (or laspy SubFieldView)
+    :param class_mapping: Optional dict mapping class values to class names
+    :type class_mapping: dict[int, str] | None
+
+    :return: Dictionary of class distribution metrics
+    :rtype: dict
+    """
+    class_labels = np.array(class_labels)
+    total_points = int(class_labels.shape[0])
+    unique_classes, counts = np.unique(class_labels, return_counts=True)
+    metrics = {"total points": total_points}
+    for cls, count in zip(unique_classes, counts):
+        class_name = (
+            class_mapping.get(cls, f"Class {cls}") if class_mapping else f"Class {cls}"
+        )
+        metrics[f"number of points in class {class_name}"] = count
+        metrics[f"fraction of points in class {class_name}"] = count / total_points
+    return metrics
