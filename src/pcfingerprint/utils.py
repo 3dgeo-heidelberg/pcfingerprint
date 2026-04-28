@@ -73,14 +73,17 @@ def _build_structured_additional_dimensions(point_cloud):
 
 
 def point_cloud_to_vapc(
-    point_cloud, voxel_size: float, voxel_origin: list[float], include_additional_dimensions: bool = True
+    point_cloud,
+    voxel_size: float,
+    voxel_origin: list[float] | None,
+    include_additional_dimensions: bool = True,
 ):
     """
     Convert a PointCloud to a configured py4dgeo Vapc object.
 
     :param point_cloud: PointCloud object with coords and optional per-point attributes.
     :param voxel_size: Size of the voxels.
-    :param voxel_origin: Origin of the voxel grid (3D coordinates).
+    :param voxel_origin: Origin of the voxel grid (3D coordinates). If None, [0.0, 0.0, 0.0] is used.
     :param include_additional_dimensions: Include structured per-point dimensions if available.
     :return: py4dgeo.Vapc instance.
     """
@@ -90,4 +93,6 @@ def point_cloud_to_vapc(
     if include_additional_dimensions:
         additional_dimensions = _build_structured_additional_dimensions(point_cloud)
     epoch = py4dgeo.Epoch(point_cloud.coords, additional_dimensions=additional_dimensions)
+    if voxel_origin is None:
+        voxel_origin = [0.0, 0.0, 0.0]
     return py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
