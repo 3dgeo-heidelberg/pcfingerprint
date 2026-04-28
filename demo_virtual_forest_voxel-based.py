@@ -37,14 +37,15 @@ assert any(
 report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
-    output_path=report_folder / "test_report.html",
+    output_folder=report_folder,
     attribute_list=["density", "linearity"],
     summary_statistics=True,
-    return_number_metrics=True,
+    return_number_metrics=False,
     visualizations=[
+        "3d_scatter",
         "histogram_overlay",
     ],
-    vis_backend="matplotlib",
+    vis_backend="plotly",
 )
 print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
 
@@ -79,7 +80,7 @@ print(
 
 # generate report only for one class
 pc_pair_filtered.generate_report(
-    output_path=report_folder_class1 / "test_report.html",
+    output_folder=report_folder_class1,
     attribute_list=[
         "density",
         "linearity",
@@ -96,7 +97,7 @@ pc_pair_filtered.generate_report(
     visualizations=[
         "histogram_overlay",
     ],
-    vis_backend="matplotlib",
+    vis_backend="plotly",
 )
 print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
 
