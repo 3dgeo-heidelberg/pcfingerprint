@@ -39,6 +39,7 @@ class PointCloud:
         self.normals = None  # Nx3 array of normal vectors
         self.normal_radius = None  # radius used for normal estimation
         self.geometric_features = {}  # dict of feature name to float array
+        self.vapc = None  # py4dgeo.Vapc object
         self.voxel_size = None  # size of voxels (float)
         self.voxel_origin = None  # list of 3 floats for voxel grid origin
         self.voxel_coords = None  # Nx3 array of voxel coordinates (centroids)
@@ -369,17 +370,24 @@ class PointCloudPair:
             for sim_pc in self.simulated:
                 compute_geom_feat_pgeof(sim_pc, pgeof_features, radius, max_knn)
 
-    def compute_voxel_features(self, voxel_size: float, voxel_origin=None, feature_names: list[str] = []):
+    def compute_voxel_features(
+        self,
+        voxel_size: float,
+        voxel_origin=None,
+        feature_names: list[str] | None = None,
+    ):
         """
         Compute voxel-based geometric features for all point clouds in the pair using VAPC.
 
         :param voxel_size: Voxel edge length used for voxel-based feature computation.
         :type voxel_size: float
-        :param voxel_origin: Optional voxel grid origin passed to the VAPC backend.
+        :param voxel_origin: Optional voxel grid origin passed to the VAPC backend. If None, [0.0, 0.0, 0.0] is used.
         :type voxel_origin: array-like, optional
         :param feature_names: List of VAPC features to compute. Supported features (py4dgeo v1.1) are "count", "density", "covariance", "eigenvalues",
         "linearity", "planarity", "sphericity", "sum_of_eigenvalues","omnivariance", "eigenentropy", "anisotropy", "surface_variation". If empty, all available features will be computed.
         """
+        if feature_names is None:
+            feature_names = []
         for pc in [self.real_world] + self.simulated:
             compute_geom_feat_vapc(
                 pc, voxel_size, voxel_origin, feature_names

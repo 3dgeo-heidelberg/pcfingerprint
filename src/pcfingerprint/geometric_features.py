@@ -170,7 +170,9 @@ def compute_geom_feat_pgeof(
 
 ####################################### Voxel-based computations #######################################
 
-def compute_point_density_vapc(point_cloud, voxel_size: float, voxel_origin: list[float]) -> None:
+def compute_point_density_vapc(
+    point_cloud, voxel_size: float, voxel_origin: list[float] | None
+) -> None:
     """
     Compute voxel-based point density using VAPC.
 
@@ -178,25 +180,31 @@ def compute_point_density_vapc(point_cloud, voxel_size: float, voxel_origin: lis
     :type point_cloud: PointCloud
     :param voxel_size: Size of the voxels
     :type voxel_size: float
-    :param voxel_origin: Origin of the voxel grid (3D coordinates)
-    :type voxel_origin: list[float]
+    :param voxel_origin: Origin of the voxel grid (3D coordinates). If None, [0.0, 0.0, 0.0] is used.
+    :type voxel_origin: list[float] or None
     """
     import py4dgeo
     py4dgeo.enable_timeit(False)
     py4dgeo.enable_trace(False)
+    resolved_voxel_origin = [0.0, 0.0, 0.0] if voxel_origin is None else list(voxel_origin)
     vapc = point_cloud_to_vapc(
         point_cloud,
         voxel_size=voxel_size,
-        voxel_origin=voxel_origin,
+        voxel_origin=resolved_voxel_origin,
         include_additional_dimensions=False,
     )
     voxel_density = vapc._compute_density()  # compute density using VAPC's internal method
     point_cloud.voxel_density = voxel_density
     point_cloud.voxel_size = voxel_size
-    point_cloud.voxel_origin = voxel_origin
+    point_cloud.voxel_origin = resolved_voxel_origin
     point_cloud.voxel_coords = vapc.unique_voxels  # store voxel coordinates for potential future use
 
-def compute_geom_feat_vapc(point_cloud, voxel_size: float, voxel_origin: list[float], feature_names: list[str]) -> None:
+def compute_geom_feat_vapc(
+    point_cloud,
+    voxel_size: float,
+    voxel_origin: list[float] | None,
+    feature_names: list[str],
+) -> None:
     """
     Compute voxel-based geometric features using VAPC.
 
@@ -204,8 +212,8 @@ def compute_geom_feat_vapc(point_cloud, voxel_size: float, voxel_origin: list[fl
     :type point_cloud: PointCloud
     :param voxel_size: Size of the voxels
     :type voxel_size: float
-    :param voxel_origin: Origin of the voxel grid (3D coordinates)
-    :type voxel_origin: list[float]
+    :param voxel_origin: Origin of the voxel grid (3D coordinates). If None, [0.0, 0.0, 0.0] is used.
+    :type voxel_origin: list[float] or None
 
     Available VAPC features (py4dgeo v1.1):
     "count", "density", "centroid", "voxel_center", "local_centroid", "covariance",
@@ -216,6 +224,7 @@ def compute_geom_feat_vapc(point_cloud, voxel_size: float, voxel_origin: list[fl
     import py4dgeo
     py4dgeo.enable_timeit(False)
     py4dgeo.enable_trace(False)
+    resolved_voxel_origin = [0.0, 0.0, 0.0] if voxel_origin is None else list(voxel_origin)
     
     vapc_available_features = [
         "count",
@@ -257,11 +266,14 @@ def compute_geom_feat_vapc(point_cloud, voxel_size: float, voxel_origin: list[fl
     vapc = point_cloud_to_vapc(
         point_cloud,
         voxel_size=voxel_size,
-        voxel_origin=voxel_origin,
+        voxel_origin=resolved_voxel_origin,
         include_additional_dimensions=True,
     )
     vapc.compute_features(feature_names=sel_feats)  # populates vapc.out
     point_cloud.vapc = vapc  # store the full VAPC object for potential future use
+    point_cloud.voxel_size = voxel_size
+    point_cloud.voxel_origin = resolved_voxel_origin
+    point_cloud.voxel_coords = vapc.unique_voxels
 
     # Store computed VAPC outputs under geometric_features.
     for feat_name, feat_data in vapc.out.items():
