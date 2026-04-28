@@ -17,7 +17,7 @@ pc_pair.generate_report(
         "histogram_overlay",
         "3d_scatter",
     ],  # "histogram" will instead plot histograms side by side
-    vis_backend="matplotlib",
+    vis_backend="plotly",
 )
 print("Report generated.")
 
