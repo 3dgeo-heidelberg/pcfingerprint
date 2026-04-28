@@ -131,7 +131,7 @@ class IFrameFigure(Figure):
         """
         html = f"""
                 <div style='display: inline-flex; width: 100%;'>
-                    <iframe src="{self.html_name.name}" title="Figure {report.figure_number}" width="100%" height="600px" style="border:none;"></iframe>
+                    <iframe data-src="{self.html_name.name}" src="about:blank" title="Figure {report.figure_number}" width="100%" height="600px" style="border:none;"></iframe>
                 </div>
                 """
         return html
@@ -208,7 +208,8 @@ class FigureSelection(Figure):
             else:
                 images_html += f"""
                 <iframe id="{element_id}_img_{i}"
-                    src="{figure_path.name}"
+                    data-src="{figure_path.name}"
+                    src="about:blank"
                     width="100%"
                     height="600px"
                     style="border:none; display: {display_style};"></iframe>
@@ -231,15 +232,46 @@ class FigureSelection(Figure):
         </div>
 
         <script>
+        function loadIframe_{element_id}(iframe) {{
+            if (!iframe || iframe.dataset.loaded === 'true') {{
+                return;
+            }}
+
+            const iframeSrc = iframe.dataset.src;
+            if (!iframeSrc) {{
+                return;
+            }}
+
+            iframe.addEventListener('load', function () {{
+                try {{
+                    iframe.contentWindow.dispatchEvent(new iframe.contentWindow.Event('resize'));
+                }} catch (error) {{
+                    // Ignore timing issues while the iframe finishes loading.
+                }}
+            }}, {{ once: true }});
+
+            iframe.dataset.loaded = 'true';
+            iframe.src = iframeSrc;
+        }}
+
         function switchImage_{element_id}(index) {{
             for (let i = 0; i < {len(self.figure_paths)}; i++) {{
                 let img = document.getElementById('{element_id}_img_' + i);
-                if (img) img.style.display = i == parseInt(index) ? 'block' : 'none';
+                if (!img) continue;
+
+                const isActive = i == parseInt(index);
+                img.style.display = isActive ? 'block' : 'none';
+                if (isActive && '{self.render_mode}' === 'iframe') {{
+                    loadIframe_{element_id}(img);
+                }}
             }}
         }}
         // Ensure first image is visible when page loads
         document.addEventListener('DOMContentLoaded', function() {{
-            switchImage_{element_id}(0);
+              const container = document.getElementById('{element_id}');
+              if (container && container.getClientRects().length > 0) {{
+                 switchImage_{element_id}(0);
+              }}
         }});
         </script>
         """
@@ -482,7 +514,7 @@ def generate_report(
                     fig_file = report.target_folder / Path(
                         f"{attribute}_histogram_{norm_str}.html"
                     )
-                    fig.write_html(fig_file)
+                    fig.write_html(fig_file, config={"responsive": True})
                     figs.append((norm_str, fig_file))
                 figure_selection = FigureSelection(
                     figure_paths=[path for _, path in figs],
@@ -537,7 +569,7 @@ def generate_report(
                         fig_file = report.target_folder / Path(
                             f"{attribute}_histogram_class{class_val}_{norm_str}.html"
                         )
-                        fig.write_html(fig_file)
+                        fig.write_html(fig_file, config={"responsive": True})
                         figure_paths.append(fig_file)
                         figure_labels.append(f"class_{class_val}_{norm_str}")
                 if len(figure_paths) > 0:

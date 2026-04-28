@@ -86,6 +86,8 @@ def write_html_with_linked_3d_camera(fig: go.Figure, file, **kwargs):
     existing_post_script = kwargs.pop("post_script", None)
     linked_script = _linked_3d_camera_post_script()
 
+    kwargs.setdefault("config", {"responsive": True})
+
     if existing_post_script is None:
         post_script = linked_script
     elif isinstance(existing_post_script, str):
@@ -259,6 +261,7 @@ def plot_histogram(
                 histnorm="probability density" if normalize else None,
                 name="Real World Point Cloud",
                 marker_color="blue",
+                nbinsx=bins,
                 opacity=0.7,
             )
         )
@@ -270,6 +273,7 @@ def plot_histogram(
                     x=data,
                     histnorm="probability density" if normalize else None,
                     name=f"Simulated Point Cloud {i+1}",
+                    nbinsx=bins,
                     marker_color=color,
                     opacity=0.3,
                 )
