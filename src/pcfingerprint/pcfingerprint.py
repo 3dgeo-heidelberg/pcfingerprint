@@ -123,13 +123,6 @@ class PointCloud:
                 new_pc.intensity = self.intensity[indices]
             if self.classification is not None:
                 new_pc.classification = self.classification[indices]
-            if self.point_density is not None:
-                warnings.warn(
-                    "Masking point density. If using mask to subset points, please recompute point density",
-                    UserWarning,
-                )
-                new_pc.point_density = self.point_density[indices]
-                new_pc.point_density_radius = self.point_density_radius
             # geometric features
             for feat_name, feat_data in self.geometric_features.items():
                 warnings.warn(
