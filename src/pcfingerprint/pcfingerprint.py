@@ -395,38 +395,6 @@ class PointCloudPair:
 
         return new_pair
 
-    def plot_histogram(
-        self,
-        attribute: str,
-        bins: int = 100,
-        backend: str = "matplotlib",
-        overlay: bool = False,
-        classes: list[
-            int
-        ] = None,  # TODO: convert to more general filter argument (also on other attributes?)
-    ):
-        hist_real_world = self.real_world
-        hist_simulated = self.simulated
-        if classes is not None:
-            print(f"Filtering point clouds to specified classes: {classes}")
-            hist_real_world = self.real_world.filter_by_class(classes)
-            hist_simulated = [
-                self.simulated[i].filter_by_class(classes)
-                for i in range(len(self.simulated))
-            ]
-
-        if backend == "matplotlib":
-            from pcfingerprint.vis_matplotlib import plot_histogram
-
-            fig = plot_histogram(
-                hist_real_world, hist_simulated, attribute, bins, overlay=overlay
-            )
-        elif backend == "plotly":
-            pass
-        else:
-            raise ValueError(f"Backend {backend} not supported.")
-        return fig
-
     def generate_report(
         self,
         output_folder: str,

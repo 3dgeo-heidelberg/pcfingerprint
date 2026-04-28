@@ -100,39 +100,83 @@ class MatplotlibFigure(Figure):
         return html
 
 
-class MatplotlibFigureSelection(Figure):
+class IFrameFigure(Figure):
+    """Class representing an HTML iframe-based figure in the report."""
+
+    def __init__(
+        self,
+        html_name: Path = None,
+        caption: str = "",
+        notes: Optional[list[str]] = None,
+    ):
+        """Initialize an iframe-backed report figure.
+
+        :param html_name: Path to the HTML file rendered in the iframe.
+        :type html_name: pathlib.Path | None
+        :param caption: Caption text for the figure.
+        :type caption: str
+        :param notes: Optional notes to include with the caption.
+        :type notes: list[str] | None
+        """
+        super(IFrameFigure, self).__init__(caption, notes)
+        self.html_name = html_name
+
+    def _as_html_figure_content(self, report: ReportInterface):
+        """Render the iframe figure as HTML content.
+
+        :param report: Report instance used for figure numbering.
+        :type report: ReportInterface
+        :return: HTML fragment for embedding the iframe.
+        :rtype: str
+        """
+        html = f"""
+                <div style='display: inline-flex; width: 100%;'>
+                    <iframe data-src="{self.html_name.name}" src="about:blank" title="Figure {report.figure_number}" width="100%" height="600px" style="border:none;"></iframe>
+                </div>
+                """
+        return html
+
+
+class FigureSelection(Figure):
     """
-    Class representing a set of matplotlib figures in the report with a dropdown menu to switch between
+    Class representing a set of figures in the report with a dropdown menu to switch between.
+    Supports either image files (matplotlib) or HTML iframes (plotly).
     """
 
     def __init__(
         self,
-        image_names: List[Path],
-        image_labels: List[str],
+        figure_paths: List[Path],
+        figure_labels: List[str],
+        render_mode: str = "image",
         caption: str = "",
         notes: Optional[list[str]] = None,
     ):
         """Initialize a dropdown-controlled figure selection.
 
-        :param image_names: Paths to images available in the selector.
-        :type image_names: list[pathlib.Path]
-        :param image_labels: Labels shown for each selectable image.
-        :type image_labels: list[str]
+        :param figure_paths: Paths to files available in the selector.
+        :type figure_paths: list[pathlib.Path]
+        :param figure_labels: Labels shown for each selectable file.
+        :type figure_labels: list[str]
+        :param render_mode: Rendering mode, either ``image`` or ``iframe``.
+        :type render_mode: str
         :param caption: Caption text for the figure block.
         :type caption: str
         :param notes: Optional notes to include with the caption.
         :type notes: list[str] | None
-        :raises ValueError: If image and label counts differ or no images are provided.
+        :raises ValueError: If file and label counts differ, no files are provided, or mode is invalid.
         """
         super().__init__(caption, notes)
 
-        if len(image_names) != len(image_labels):
-            raise ValueError("image_names and image_labels must have the same length")
-        if len(image_names) == 0:
-            raise ValueError("At least one image must be provided")
+        if len(figure_paths) != len(figure_labels):
+            raise ValueError("figure_paths and figure_labels must have the same length")
+        if len(figure_paths) == 0:
+            raise ValueError("At least one figure must be provided")
+        if render_mode not in ("image", "iframe"):
+            raise ValueError("render_mode must be either 'image' or 'iframe'")
 
-        self.image_names = image_names
-        self.image_labels = image_labels
+        self.figure_paths = figure_paths
+        self.figure_labels = figure_labels
+        self.render_mode = render_mode
 
     def _as_html_figure_content(self, report: ReportInterface) -> str:
         """Render figure-selection HTML with dropdown and switchable images.
@@ -146,20 +190,30 @@ class MatplotlibFigureSelection(Figure):
 
         # Create the dropdown options
         options_html = ""
-        for i, label in enumerate(self.image_labels):
+        for i, label in enumerate(self.figure_labels):
             selected = "selected" if i == 0 else ""
             options_html += f'<option value="{i}" {selected}>{label}</option>\n'
 
-        # Create the image tags
+        # Create the content tags
         images_html = ""
-        for i, name in enumerate(self.image_names):
+        for i, figure_path in enumerate(self.figure_paths):
             display_style = "block" if i == 0 else "none"
-            images_html += f"""
+            if self.render_mode == "image":
+                images_html += f"""
                 <img id="{element_id}_img_{i}"
-                    src="{name.name}"
-                    alt="{self.image_labels[i]}"
+                    src="{figure_path.name}"
+                    alt="{self.figure_labels[i]}"
                     style="max-width: 100%; display: {display_style};" />
-            """
+                """
+            else:
+                images_html += f"""
+                <iframe id="{element_id}_img_{i}"
+                    data-src="{figure_path.name}"
+                    src="about:blank"
+                    width="100%"
+                    height="600px"
+                    style="border:none; display: {display_style};"></iframe>
+                """
 
         html = f"""
         <br><br>
@@ -178,15 +232,46 @@ class MatplotlibFigureSelection(Figure):
         </div>
 
         <script>
+        function loadIframe_{element_id}(iframe) {{
+            if (!iframe || iframe.dataset.loaded === 'true') {{
+                return;
+            }}
+
+            const iframeSrc = iframe.dataset.src;
+            if (!iframeSrc) {{
+                return;
+            }}
+
+            iframe.addEventListener('load', function () {{
+                try {{
+                    iframe.contentWindow.dispatchEvent(new iframe.contentWindow.Event('resize'));
+                }} catch (error) {{
+                    // Ignore timing issues while the iframe finishes loading.
+                }}
+            }}, {{ once: true }});
+
+            iframe.dataset.loaded = 'true';
+            iframe.src = iframeSrc;
+        }}
+
         function switchImage_{element_id}(index) {{
-            for (let i = 0; i < {len(self.image_names)}; i++) {{
+            for (let i = 0; i < {len(self.figure_paths)}; i++) {{
                 let img = document.getElementById('{element_id}_img_' + i);
-                if (img) img.style.display = i == parseInt(index) ? 'block' : 'none';
+                if (!img) continue;
+
+                const isActive = i == parseInt(index);
+                img.style.display = isActive ? 'block' : 'none';
+                if (isActive && '{self.render_mode}' === 'iframe') {{
+                    loadIframe_{element_id}(img);
+                }}
             }}
         }}
         // Ensure first image is visible when page loads
         document.addEventListener('DOMContentLoaded', function() {{
-            switchImage_{element_id}(0);
+              const container = document.getElementById('{element_id}');
+              if (container && container.getClientRects().length > 0) {{
+                 switchImage_{element_id}(0);
+              }}
         }});
         </script>
         """
@@ -274,16 +359,17 @@ def generate_report(
     if "3d_scatter" in visualizations:
         section = Section(section_title=f"3D Scatter Plot Comparison")
         scatter_tabs = Tabs()
+        if len(attribute_list) == 0:
+            plot_attribute_list = ["z"]
+        else:
+            plot_attribute_list = attribute_list
+        tab_content_scatter = {}
+
         # generate 3d scatter plot
         if vis_backend == "matplotlib":
             # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
             from pcfingerprint.vis_matplotlib import plot_3d_scatter
 
-            if len(attribute_list) == 0:
-                plot_attribute_list = ["z"]
-            else:
-                plot_attribute_list = attribute_list
-            tab_content_scatter = {}
             for attribute in plot_attribute_list:
                 fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
                 # save the figure to a file in the report folder and add it to the report
@@ -294,13 +380,29 @@ def generate_report(
                     image_name=img_file,
                     caption=f"3D scatter plot colored by {attribute}",
                 )
-            scatter_tabs.set_tabs(tab_content_scatter)
-            section.add_content({"3d_scatter_plot": scatter_tabs})
+        elif vis_backend == "plotly":
+            from pcfingerprint.vis_plotly import (
+                plot_3d_scatter,
+                write_html_with_linked_3d_camera,
+            )
+
+            for attribute in plot_attribute_list:
+                fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
+                fig_file = report.target_folder / Path(f"3d_scatter_{attribute}.html")
+                write_html_with_linked_3d_camera(fig, fig_file)
+                tab_content_scatter[attribute] = IFrameFigure(
+                    html_name=fig_file,
+                    caption=f"3D scatter plot colored by {attribute}",
+                )
         else:
             # other backends not supported yet
             raise NotImplementedError(
                 f"Visualization backend {vis_backend} not supported for 3D scatter plot."
             )
+
+        if len(tab_content_scatter) > 0:
+            scatter_tabs.add_tabs(tab_content_scatter)
+            section.add_content({"3d_scatter_tabs": scatter_tabs})
         block_content["section_3d_scatter"] = section
 
     # Section for attribute comparisons
@@ -395,9 +497,29 @@ def generate_report(
                     imgs.append((norm_str, img_file))
                 image_labels = [label for label, _ in imgs]
                 image_names = [path for _, path in imgs]
-                figure_selection = MatplotlibFigureSelection(
-                    image_names=image_names,
-                    image_labels=image_labels,
+                figure_selection = FigureSelection(
+                    figure_paths=image_names,
+                    figure_labels=image_labels,
+                    caption=f"Histogram of {attribute}",
+                )
+                tab_content_hists[attribute] = figure_selection
+            elif vis_backend == "plotly":
+                from pcfingerprint.vis_plotly import plot_histogram
+
+                figs = []
+                for norm, norm_str in ((False, "frequency"), (True, "density")):
+                    fig = plot_histogram(
+                        real_pc, sim_pcs, attribute, overlay=overlay, normalize=norm
+                    )
+                    fig_file = report.target_folder / Path(
+                        f"{attribute}_histogram_{norm_str}.html"
+                    )
+                    fig.write_html(fig_file, config={"responsive": True})
+                    figs.append((norm_str, fig_file))
+                figure_selection = FigureSelection(
+                    figure_paths=[path for _, path in figs],
+                    figure_labels=[label for label, _ in figs],
+                    render_mode="iframe",
                     caption=f"Histogram of {attribute}",
                 )
                 tab_content_hists[attribute] = figure_selection
@@ -428,12 +550,36 @@ def generate_report(
                 if len(imgs) > 0:
                     image_labels = [label for label, _ in imgs]
                     image_names = [path for _, path in imgs]
-                    figure_selection = MatplotlibFigureSelection(
-                        image_names=image_names,
-                        image_labels=image_labels,
+                    figure_selection = FigureSelection(
+                        figure_paths=image_names,
+                        figure_labels=image_labels,
                         caption=f"Histogram of {attribute} per class",
                     )
                     tab_content_hists_per_class[attribute] = figure_selection
+            elif vis_backend == "plotly":
+                from pcfingerprint.vis_plotly import plot_histogram_per_class
+
+                figure_paths = []
+                figure_labels = []
+                for norm, norm_str in ((False, "frequency"), (True, "density")):
+                    figs, classes = plot_histogram_per_class(
+                        real_pc, sim_pcs, attribute, normalize=norm
+                    )
+                    for fig, class_val in zip(figs, classes):
+                        fig_file = report.target_folder / Path(
+                            f"{attribute}_histogram_class{class_val}_{norm_str}.html"
+                        )
+                        fig.write_html(fig_file, config={"responsive": True})
+                        figure_paths.append(fig_file)
+                        figure_labels.append(f"class_{class_val}_{norm_str}")
+                if len(figure_paths) > 0:
+                    figure_selection = FigureSelection(
+                        figure_paths=figure_paths,
+                        figure_labels=figure_labels,
+                        render_mode="iframe",
+                        caption=f"Histogram of {attribute} per class",
+                    )
+                    tab_content_hists_per_class[f"{attribute}"] = figure_selection
             else:
                 # other backends not supported yet
                 raise NotImplementedError(
