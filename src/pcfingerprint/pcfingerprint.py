@@ -28,7 +28,6 @@ class PointCloud:
     ):
         self.coords = coords  # Nx3 array of point coordinates
         self.source = None  # source file path
-        self.kd_tree = None  # KDTree for spatial queries
         self.gps_time = gps_time  # float array
         self.return_number = return_number  # int array
         self.number_of_returns = number_of_returns  # int array
@@ -39,10 +38,6 @@ class PointCloud:
         self.normals = None  # Nx3 array of normal vectors
         self.normal_radius = None  # radius used for normal estimation
         self.geometric_features = {}  # dict of feature name to float array
-        self.vapc = None  # py4dgeo.Vapc object
-        self.voxel_size = None  # size of voxels (float)
-        self.voxel_origin = None  # list of 3 floats for voxel grid origin
-        self.voxel_coords = None  # Nx3 array of voxel coordinates (centroids)
         self.is_outlier = None  # boolean array
 
     def shift_z_to_zero(self):
@@ -195,7 +190,7 @@ class PointCloudPair:
             raise ValueError(
                 f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
             )
-        self.real_world.source = filepath
+        self.real_world.source = Path(filepath)
         if self.shift_z:
             self.real_world.shift_z_to_zero()
         if self.shift_gps_time:
@@ -231,7 +226,7 @@ class PointCloudPair:
                 raise ValueError(
                     f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
                 )
-            self.simulated[-1].source = filepath
+            self.simulated[-1].source = Path(filepath)
         if self.shift_z:
             for pc in self.simulated:
                 pc.shift_z_to_zero()
@@ -385,13 +380,22 @@ class PointCloudPair:
         :type voxel_origin: array-like, optional
         :param feature_names: List of VAPC features to compute. Supported features (py4dgeo v1.1) are "count", "density", "covariance", "eigenvalues",
         "linearity", "planarity", "sphericity", "sum_of_eigenvalues","omnivariance", "eigenentropy", "anisotropy", "surface_variation". If empty, all available features will be computed.
+        :type feature_names: list[str] | None
+
+        :return: Tuple containing (VAPC for real world point cloud, list of VAPCs for simulated point clouds)
+        :rtype: tuple[py4dgeo.Vapc, list[py4dgeo.Vapc]]
         """
         if feature_names is None:
             feature_names = []
+        vapc_list = []
         for pc in [self.real_world] + self.simulated:
-            compute_geom_feat_vapc(
-                pc, voxel_size, voxel_origin, feature_names
-            )
+            vapc = compute_geom_feat_vapc(pc, voxel_size, voxel_origin, feature_names)
+            vapc_list.append(vapc)
+
+        return (
+            vapc_list[0],
+            vapc_list[1:],
+        )  # return real world VAPC and list of simulated VAPCs
 
     def filter_by_class(self, classes: list[int]):
         """
@@ -494,22 +498,24 @@ class PointCloudPair:
             sim_outpath = output_folder / Path(sim_pc.source).name
             write_las(sim_pc, sim_outpath)
 
-    def write_voxelized_point_clouds(self, output_folder: str,reduce_to_feature = "closest_to_centroids"):
-        # write voxelized point clouds (with voxel-based features) to output folder
-        output_folder = Path(output_folder)
-        output_folder.mkdir(parents=True, exist_ok=True)
-        # write real world
-        real_outpath = (output_folder/ f"{Path(self.real_world.source).stem}_voxelized_v{self.real_world.vapc.voxel_size}.las")
-        self.real_world.vapc = self.real_world.vapc.reduce_to_feature(feature_name = reduce_to_feature)  # reduce to voxel centroids for writing
-        self.real_world.vapc.save_as_las(real_outpath)  # use VAPC's built-in function to save voxelized point cloud with features as LAS file
-        # write simulated
-        for sim_pc in self.simulated:
-            sim_pc.vapc = sim_pc.vapc.reduce_to_feature(feature_name = reduce_to_feature)  # reduce to voxel centroids for writing
-            sim_outpath = (
-                output_folder
-                / f"{Path(sim_pc.source).stem}_voxelized_v{sim_pc.vapc.voxel_size}.las"
-            )
-            sim_pc.vapc.save_as_las(sim_outpath)  # use VAPC's built-in function to save voxelized point cloud with features as LAS file
+
+def write_voxelized_point_clouds(
+    vapc, filebase: str, reduce_to_feature="closest_to_centroids"
+) -> None:
+    """
+    Write voxelized point cloud (with voxel-based features) to disk as a LAS file
+
+    :param vapc: VAPC instance containing the voxelized point cloud and features
+    :type vapc: py4dgeo.Vapc
+    :param filebase: Base file path (without extension) to write the voxelized point cloud to. The final filename will be constructed as {filebase}_voxelized_{reduce_to_feature}_v{voxel_size}.laz
+    :type filebase: str
+    :param reduce_to_feature: The VAPC feature to reduce the voxelized point cloud to for writing. Supported options are "closest_to_centroids" (default), "centroid", and any other feature available in vapc.out. If "closest_to_centroids", the point closest to the voxel centroid will be written. If "centroid", the voxel centroid will be written. If another feature name, the point with the highest value for that feature in each voxel will be written.
+    :type reduce_to_feature: str
+    """
+    vapc = vapc.reduce_to_feature(feature_name=reduce_to_feature)
+    suffix = f"_voxelized_{reduce_to_feature}_v{vapc.voxel_size}.laz"
+    outpath = Path(str(filebase) + suffix)
+    vapc.save_as_las(outpath)
 
 
 def read_las_file(filepath):

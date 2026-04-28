@@ -168,11 +168,13 @@ def compute_geom_feat_pgeof(
     for i, f_name in enumerate(feature_names):
         point_cloud.geometric_features[f"{f_name}_r{radius}"] = feats[i].reshape(-1)
 
+
 ####################################### Voxel-based computations #######################################
+
 
 def compute_point_density_vapc(
     point_cloud, voxel_size: float, voxel_origin: list[float] | None
-) -> None:
+):
     """
     Compute voxel-based point density using VAPC.
 
@@ -182,29 +184,38 @@ def compute_point_density_vapc(
     :type voxel_size: float
     :param voxel_origin: Origin of the voxel grid (3D coordinates). If None, [0.0, 0.0, 0.0] is used.
     :type voxel_origin: list[float] or None
+
+    :return: VAPC instance
+    :rtype: py4dgeo.Vapc
     """
     import py4dgeo
+
     py4dgeo.enable_timeit(False)
     py4dgeo.enable_trace(False)
-    resolved_voxel_origin = [0.0, 0.0, 0.0] if voxel_origin is None else list(voxel_origin)
+    resolved_voxel_origin = (
+        [0.0, 0.0, 0.0] if voxel_origin is None else list(voxel_origin)
+    )
     vapc = point_cloud_to_vapc(
         point_cloud,
         voxel_size=voxel_size,
         voxel_origin=resolved_voxel_origin,
         include_additional_dimensions=False,
     )
-    voxel_density = vapc._compute_density()  # compute density using VAPC's internal method
-    point_cloud.voxel_density = voxel_density
-    point_cloud.voxel_size = voxel_size
-    point_cloud.voxel_origin = resolved_voxel_origin
-    point_cloud.voxel_coords = vapc.unique_voxels  # store voxel coordinates for potential future use
+    voxel_density = (
+        vapc._compute_density()
+    )  # compute density using VAPC's internal method
+    # store computed voxel density under geometric_features
+    point_cloud.geometric_features[f"voxel_density_v{voxel_size}"] = voxel_density
+
+    return vapc
+
 
 def compute_geom_feat_vapc(
     point_cloud,
     voxel_size: float,
     voxel_origin: list[float] | None,
     feature_names: list[str],
-) -> None:
+):
     """
     Compute voxel-based geometric features using VAPC.
 
@@ -214,6 +225,11 @@ def compute_geom_feat_vapc(
     :type voxel_size: float
     :param voxel_origin: Origin of the voxel grid (3D coordinates). If None, [0.0, 0.0, 0.0] is used.
     :type voxel_origin: list[float] or None
+    :param feature_names: List of feature names to compute. Supported features depend on the underlying VAPC implementation.
+    :type feature_names: list[str]
+
+    :return: VAPC instance with computed features
+    :rtype: py4dgeo.Vapc
 
     Available VAPC features (py4dgeo v1.1):
     "count", "density", "centroid", "voxel_center", "local_centroid", "covariance",
@@ -222,10 +238,13 @@ def compute_geom_feat_vapc(
     "anisotropy", "surface_variation".
     """
     import py4dgeo
+
     py4dgeo.enable_timeit(False)
     py4dgeo.enable_trace(False)
-    resolved_voxel_origin = [0.0, 0.0, 0.0] if voxel_origin is None else list(voxel_origin)
-    
+    resolved_voxel_origin = (
+        [0.0, 0.0, 0.0] if voxel_origin is None else list(voxel_origin)
+    )
+
     vapc_available_features = [
         "count",
         "density",
@@ -248,7 +267,7 @@ def compute_geom_feat_vapc(
 
     if len(feature_names) == 0:
         feature_names = vapc_available_features
-    
+
     sel_feats = [f for f in feature_names if f in vapc_available_features]
     invalid_features = [f for f in feature_names if f not in vapc_available_features]
     if invalid_features:
@@ -262,7 +281,7 @@ def compute_geom_feat_vapc(
             "No valid VAPC features selected. "
             f"Available features: {vapc_available_features}"
         )
-    
+
     vapc = point_cloud_to_vapc(
         point_cloud,
         voxel_size=voxel_size,
@@ -270,11 +289,9 @@ def compute_geom_feat_vapc(
         include_additional_dimensions=True,
     )
     vapc.compute_features(feature_names=sel_feats)  # populates vapc.out
-    point_cloud.vapc = vapc  # store the full VAPC object for potential future use
-    point_cloud.voxel_size = voxel_size
-    point_cloud.voxel_origin = resolved_voxel_origin
-    point_cloud.voxel_coords = vapc.unique_voxels
 
     # Store computed VAPC outputs under geometric_features.
     for feat_name, feat_data in vapc.out.items():
         point_cloud.geometric_features[f"{feat_name}_v{voxel_size}"] = feat_data
+
+    return vapc
