@@ -1,0 +1,6 @@
+nbsphinx
+nbsphinx-link
+sphinx<9
+sphinx-autoapi
+sphinx_mdinclude
+sphinx_rtd_theme

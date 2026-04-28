@@ -2,14 +2,396 @@
 Module for visualisations on comparisons between point clouds.
 """
 
+import math
+
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from jinja2 import Template
+import pcfingerprint
+from pcfingerprint.utils import subsample_points, _validate_classes
 
 
-def plot_3d_scatter(real_pc, sim_pc, color_by=None):
-    pass
+def _linked_3d_camera_post_script() -> str:
+    """Return JavaScript that syncs camera updates across all 3D scenes."""
+    return """
+const gd = document.getElementById('{plot_id}');
+if (!gd) {
+    return;
+}
+
+let syncing = false;
+
+function getSceneKeys(layout) {
+    return Object.keys(layout || {}).filter((key) => /^scene\\d*$/.test(key));
+}
+
+gd.on('plotly_relayout', (eventData) => {
+    if (syncing || !eventData) {
+        return;
+    }
+
+    let sourceScene = null;
+    let camera = null;
+
+    for (const [key, value] of Object.entries(eventData)) {
+        const match = key.match(/^(scene\\d*)\\.camera$/);
+        if (match) {
+            sourceScene = match[1];
+            camera = value;
+            break;
+        }
+    }
+
+    if (!camera) {
+        for (const key of Object.keys(eventData)) {
+            const match = key.match(/^(scene\\d*)\\.camera\\./);
+            if (match) {
+                sourceScene = match[1];
+                break;
+            }
+        }
+        if (sourceScene && gd.layout[sourceScene] && gd.layout[sourceScene].camera) {
+            camera = gd.layout[sourceScene].camera;
+        }
+    }
+
+    if (!camera) {
+        return;
+    }
+
+    const updates = {};
+    for (const scene of getSceneKeys(gd.layout)) {
+        if (scene !== sourceScene) {
+            updates[`${scene}.camera`] = camera;
+        }
+    }
+
+    if (Object.keys(updates).length === 0) {
+        return;
+    }
+
+    syncing = true;
+    Plotly.relayout(gd, updates)
+        .finally(() => {
+            syncing = false;
+        });
+});
+"""
 
 
-def plot_point_density_histogram(real_pc, sim_pc):
-    pass
+def write_html_with_linked_3d_camera(fig: go.Figure, file, **kwargs):
+    """Write a Plotly figure to standalone HTML with linked 3D camera behavior."""
+    existing_post_script = kwargs.pop("post_script", None)
+    linked_script = _linked_3d_camera_post_script()
+
+    kwargs.setdefault("config", {"responsive": True})
+
+    if existing_post_script is None:
+        post_script = linked_script
+    elif isinstance(existing_post_script, str):
+        post_script = [existing_post_script, linked_script]
+    else:
+        post_script = [*existing_post_script, linked_script]
+
+    fig.write_html(file, post_script=post_script, **kwargs)
+
+
+def plot_grid(num_plots):
+    """
+    Helper function to determine the number of rows and columns for subplots based on the number of plots.
+    """
+    ncols = 2 if num_plots <= 4 else 3
+    nrows = math.ceil(num_plots / ncols)
+    subplot_titles = [""] * (nrows * ncols)
+    subplot_titles[0] = "Real World Point Cloud"
+    for i in range(num_plots - 1):
+        subplot_titles[i + 1] = f"Simulated Point Cloud {i + 1}"
+
+    fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=subplot_titles)
+
+    return fig, nrows, ncols
+
+
+def plot_grid_3d(num_plots):
+    """
+    Helper function to determine the number of rows and columns for subplots based on the number of plots.
+    """
+    ncols = 2 if num_plots <= 4 else 3
+    nrows = math.ceil(num_plots / ncols)
+    subplot_titles = [""] * (nrows * ncols)
+    subplot_titles[0] = "Real World Point Cloud"
+    for i in range(num_plots - 1):
+        subplot_titles[i + 1] = f"Simulated Point Cloud {i + 1}"
+
+    fig = make_subplots(
+        rows=nrows,
+        cols=ncols,
+        subplot_titles=subplot_titles,
+        specs=[[{"type": "scatter3d"} for _ in range(ncols)] for _ in range(nrows)],
+    )
+
+    return fig, nrows, ncols
+
+
+def plot_3d_scatter(
+    real_pc,
+    sim_pcs: list,
+    attribute: str = None,
+    max_n_points: int = 50_000,
+):
+    # subsample points if necessary
+    real_pc, subsample_indices = subsample_points(real_pc, max_n_points)
+    sim_pc_sub = [
+        subsample_points(sim_pc, max_n_points) for i, sim_pc in enumerate(sim_pcs)
+    ]
+    sim_pcs, sim_subsample_indices = zip(*sim_pc_sub)
+
+    if attribute is None:
+        print(
+            "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
+        )
+        attribute = "z"
+    print(f"Generating 3D scatter plot colored by {attribute}...")
+
+    # get attribute data
+    real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
+    sim_data = [
+        pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute)
+        for sim_pc in sim_pcs
+    ]
+
+    # determine plot grid based on inputs
+    fig, nrows, ncols = plot_grid_3d(len(sim_pcs) + 1)
+
+    # real world
+    fig.add_trace(
+        go.Scatter3d(
+            x=real_pc.coords[:, 0],
+            y=real_pc.coords[:, 1],
+            z=real_pc.coords[:, 2],
+            mode="markers",
+            marker=dict(
+                size=2,
+                color=real_data,
+                colorscale="Viridis",
+                opacity=0.8,
+                colorbar=dict(title=attribute),
+            ),
+            name="Real World Point Cloud",
+        ),
+        row=1,
+        col=1,
+    )
+
+    # simulated
+    for i, sim_pc in enumerate(sim_pcs):
+        subplot_index = i + 1
+        row = subplot_index // ncols + 1
+        col = subplot_index % ncols + 1
+        fig.add_trace(
+            go.Scatter3d(
+                x=sim_pc.coords[:, 0],
+                y=sim_pc.coords[:, 1],
+                z=sim_pc.coords[:, 2],
+                mode="markers",
+                marker=dict(
+                    size=2,
+                    color=sim_data[i],
+                    colorscale="Viridis",
+                    opacity=0.8,
+                ),
+                name=f"Simulated Point Cloud {i + 1}",
+            ),
+            row=row,
+            col=col,
+        )
+    fig.update_scenes(aspectmode="data")
+    fig.update_layout(template="plotly_white", showlegend=False)
+
+    return fig
+
+
+def plot_histogram(
+    real_pc,
+    sim_pcs: list,
+    attribute: str,
+    bins: int = 100,
+    overlay: bool = False,
+    normalize: bool = False,
+):
+    """
+    Plot histograms of an attribute for real and simulated point clouds side by side.
+
+    :param real_pc: PointCloud object representing the real-world point cloud
+    :param sim_pcs: List of PointCloud objects representing the simulated point clouds
+    :param attribute: Name of the attribute to plot
+    :type attribute: str
+    :param bins: Number of bins for the histogram
+    :type bins: int
+    :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
+    :type normalize: bool
+    """
+    # y-label based on normalization
+    if normalize:
+        ylabel = "Density"
+    else:
+        ylabel = "Frequency"
+
+    # get attribute data
+    real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
+    sim_data = [
+        pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute)
+        for sim_pc in sim_pcs
+    ]
+
+    if overlay:  # overlay histograms with transparency
+        fig = go.Figure()
+        n_colours = len(sim_pcs) + 1
+        colors = (
+            px.colors.qualitative.Plotly
+            if n_colours <= len(px.colors.qualitative.Plotly)
+            else px.colors.qualitative.Dark24
+        )
+        # real world
+        fig.add_trace(
+            go.Histogram(
+                x=real_data,
+                histnorm="probability density" if normalize else None,
+                name="Real World Point Cloud",
+                marker_color="blue",
+                nbinsx=bins,
+                opacity=0.7,
+            )
+        )
+        # simulated
+        for i, data in enumerate(sim_data):
+            color = colors[i]
+            fig.add_trace(
+                go.Histogram(
+                    x=data,
+                    histnorm="probability density" if normalize else None,
+                    name=f"Simulated Point Cloud {i+1}",
+                    nbinsx=bins,
+                    marker_color=color,
+                    opacity=0.3,
+                )
+            )
+        fig.update_layout(barmode="overlay", xaxis_title=attribute, yaxis_title=ylabel)
+        fig.update_traces(opacity=0.7)
+
+        return fig
+    else:  # plot histograms side by side
+        # determine plot grid based on inputs
+        total_plots = len(sim_pcs) + 1
+        fig, nrows, ncols = plot_grid(total_plots)
+
+        # get max frequency to scale y-axis equally
+        max_freq = 0
+        max_freq = max(max_freq, max(np.histogram(real_data, bins=bins)[0]))
+        for data in sim_data:
+            max_freq = max(max_freq, max(np.histogram(data, bins=bins)[0]))
+        histnorm = "probability density" if normalize else None
+
+        # ax 0 is always real pc
+        fig.add_trace(
+            go.Histogram(
+                x=real_data,
+                nbinsx=bins,
+                histnorm=histnorm,
+                name="Real World Point Cloud",
+                marker_color="blue",
+                opacity=0.7,
+                showlegend=False,
+            ),
+            row=1,
+            col=1,
+        )
+        fig.update_xaxes(title_text="", row=1, col=1)
+        fig.update_yaxes(title_text=ylabel, row=1, col=1)
+        if not normalize:
+            fig.update_yaxes(range=[0, max_freq * 1.1], row=1, col=1)
+        for i, data in enumerate(sim_data):
+            subplot_index = i + 1
+            row = subplot_index // ncols + 1
+            col = subplot_index % ncols + 1
+            fig.add_trace(
+                go.Histogram(
+                    x=data,
+                    nbinsx=bins,
+                    histnorm=histnorm,
+                    name=f"Simulated Point Cloud {i + 1}",
+                    marker_color=px.colors.qualitative.Plotly[
+                        i % len(px.colors.qualitative.Plotly)
+                    ],
+                    opacity=0.7,
+                    showlegend=False,
+                ),
+                row=row,
+                col=col,
+            )
+            fig.update_xaxes(title_text="", row=row, col=col)
+            fig.update_yaxes(title_text=ylabel, row=row, col=col)
+            if not normalize:
+                fig.update_yaxes(range=[0, max_freq * 1.1], row=row, col=col)
+
+        # hide any unused subplots
+        for subplot_index in range(total_plots, nrows * ncols):
+            row = subplot_index // ncols + 1
+            col = subplot_index % ncols + 1
+            fig.update_xaxes(visible=False, row=row, col=col)
+            fig.update_yaxes(visible=False, row=row, col=col)
+
+        fig.update_layout(template="plotly_white", showlegend=False)
+
+        return fig
+
+
+def plot_histogram_per_class(
+    real_pc, sim_pcs: list, attribute: str, bins: int = 100, normalize: bool = False
+):
+    """
+    Plot histograms of an attribute for real and simulated point clouds side by side, separated by class.
+    If a class is present in the real point cloud but not in any of the simulated point clouds, or vice versa,
+    there will be one empty histogram.
+
+    :param real_pc: PointCloud object representing the real-world point cloud
+    :param sim_pcs: List of PointCloud objects representing the simulated point clouds
+    :param attribute: Name of the attribute to plot
+    :type attribute: str
+    :param bins: Number of bins for the histogram
+    :type bins: int
+    :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
+    :type normalize: bool
+    """
+
+    _validate_classes(real_pc)
+    for sim_pc in sim_pcs:
+        _validate_classes(sim_pc)
+
+    classes = np.unique(real_pc.classification)
+
+    figs = []
+    for sim_pc in sim_pcs:
+        sim_classes = np.unique(sim_pc.classification)
+        classes = np.union1d(classes, sim_classes)
+    for class_value in classes:
+        class_filter_real = real_pc.classification == class_value
+        class_filters_sim = [sim_pc.classification == class_value for sim_pc in sim_pcs]
+        hist_real_world_class = real_pc.mask(class_filter_real)
+        hist_simulated_class = [
+            sim_pc.mask(class_filters_sim[i]) for i, sim_pc in enumerate(sim_pcs)
+        ]
+        fig = plot_histogram(
+            hist_real_world_class,
+            hist_simulated_class,
+            attribute=attribute,
+            bins=bins,
+            overlay=True,
+            normalize=normalize,
+        )
+        fig.update_layout(title_text=f"Class {class_value}")
+        figs.append(fig)
+
+    return figs, classes

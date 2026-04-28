@@ -10,14 +10,14 @@ pc_pair.load_simulated(list(data_folder.glob("avia*.las")))
 
 # generate project report
 pc_pair.generate_report(
-    output_path=report_folder / "test_report.html",
+    output_folder=report_folder,
     attribute_list=["gps_time"],
     summary_statistics=True,
     visualizations=[
         "histogram_overlay",
         "3d_scatter",
     ],  # "histogram" will instead plot histograms side by side
-    vis_backend="matplotlib",
+    vis_backend="plotly",
 )
 print("Report generated.")
 

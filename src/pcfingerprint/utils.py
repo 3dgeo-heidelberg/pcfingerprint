@@ -92,7 +92,47 @@ def point_cloud_to_vapc(
     additional_dimensions = None
     if include_additional_dimensions:
         additional_dimensions = _build_structured_additional_dimensions(point_cloud)
-    epoch = py4dgeo.Epoch(point_cloud.coords, additional_dimensions=additional_dimensions)
+    epoch = py4dgeo.Epoch(
+        point_cloud.coords, additional_dimensions=additional_dimensions
+    )
     if voxel_origin is None:
         voxel_origin = [0.0, 0.0, 0.0]
     return py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
+
+
+def subsample_points(pc, max_n_points: int = 500_000):
+    """
+    Randomly subsample the point cloud to a maximum number of points.
+    If the point cloud has less points than the specified maximum, it will be returned unchanged.
+
+    :param pc: The input point cloud to be subsampled.
+    :type pc: PointCloud
+    :param max_n_points: The maximum number of points to subsample to.
+    :type max_n_points: int
+
+    :return: The subsampled point cloud and the indices of the points that were kept.
+    :rtype: tuple(PointCloud, np.ndarray)
+    """
+    num_points = pc.coords.shape[0]
+    if num_points > max_n_points:
+        indices = np.random.choice(num_points, max_n_points, replace=False)
+        pc = pc.mask(indices)
+        print(
+            f"Subsampled from {num_points} to {pc.coords.shape[0]} points for visualization."
+        )
+    else:
+        indices = np.arange(num_points)
+    return pc, indices
+
+
+def _validate_classes(pc):
+    try:
+        getattr(pc, "classification")
+    except AttributeError:
+        raise ValueError(
+            f"Point cloud does not have 'classification' attribute, cannot plot histogram per class."
+        )
+    if pc.classification is None or len(pc.classification) == 0:
+        raise ValueError(
+            f"Point cloud has empty 'classification' attribute, cannot plot histogram per class."
+        )

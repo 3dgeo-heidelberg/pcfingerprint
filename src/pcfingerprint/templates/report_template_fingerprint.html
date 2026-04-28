@@ -156,9 +156,80 @@
 
   <script>
     $('head').append('<link rel="stylesheet" type="text/css" href="https://storage.googleapis.com/static.numerously.com/report/styling-graph_20012101.css">');
-    setTimeout(function () {
-      window.dispatchEvent(new Event('resize'));
-    }, 1000);
+
+    function resizePlotlyIframe(iframe) {
+      if (!iframe) {
+        return;
+      }
+
+      try {
+        const iframeWindow = iframe.contentWindow;
+        if (!iframeWindow) return;
+
+        iframeWindow.dispatchEvent(new iframeWindow.Event('resize'));
+
+        const iframeDocument = iframe.contentDocument;
+        if (iframeWindow.Plotly && iframeDocument) {
+          const graph = iframeDocument.querySelector('.plotly-graph-div');
+          if (graph) {
+            iframeWindow.Plotly.Plots.resize(graph);
+          }
+        }
+      } catch (error) {
+        // Ignore cross-origin or timing issues; the next resize will retry.
+      }
+    }
+
+    function loadVisibleLazyIframes(root) {
+      const scope = root || document;
+      const iframes = scope.querySelectorAll('iframe[data-src]');
+
+      iframes.forEach((iframe) => {
+        if (iframe.dataset.loaded === 'true' || iframe.getClientRects().length === 0) {
+          return;
+        }
+
+        const iframeSrc = iframe.dataset.src;
+        if (!iframeSrc) {
+          return;
+        }
+
+        iframe.addEventListener('load', function () {
+          requestAnimationFrame(() => resizePlotlyIframe(iframe));
+        }, { once: true });
+
+        iframe.dataset.loaded = 'true';
+        iframe.src = iframeSrc;
+      });
+    }
+
+    function schedulePlotlyResize(root) {
+      setTimeout(() => {
+        loadVisibleLazyIframes(root);
+        const scope = root || document;
+        scope.querySelectorAll('iframe').forEach((iframe) => {
+          if (iframe.getClientRects().length > 0) {
+            resizePlotlyIframe(iframe);
+          }
+        });
+      }, 50);
+    }
+
+    document.addEventListener('click', function (event) {
+      if (event.target.closest && event.target.closest('.tablinks')) {
+        schedulePlotlyResize(document);
+      }
+    });
+
+    window.addEventListener('resize', function () {
+      schedulePlotlyResize(document);
+    });
+
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        schedulePlotlyResize(document);
+      }, 1000);
+    });
   </script>
 
   <script>

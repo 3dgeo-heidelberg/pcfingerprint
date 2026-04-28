@@ -82,6 +82,7 @@ def compute_return_number_metrics(return_number, number_of_returns) -> dict:
     multiple_returns = int(np.sum(number_of_returns > 1))
     single_returns = int(np.sum(number_of_returns == 1))
     metrics = {
+        "number of returns": total_points,
         "number of first returns": first_returns,
         "number of intermediate returns": intermediate_returns,
         "number of last returns": last_returns,

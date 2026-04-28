@@ -26,7 +26,7 @@ print(f"Geometric features computed in {time.time() - geom_start_time:.2f} secon
 report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
-    output_path=report_folder / "test_report.html",
+    output_folder=report_folder,
     attribute_list=["z", "point_density", "linearity", "intensity"],
     summary_statistics=True,
     return_number_metrics=True,
@@ -34,7 +34,7 @@ pc_pair.generate_report(
         "histogram_overlay",
         "3d_scatter",
     ],  # "histogram" will instead plot histograms side by side
-    vis_backend="matplotlib",
+    vis_backend="plotly",
 )
 print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
 

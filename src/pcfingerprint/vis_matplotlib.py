@@ -4,6 +4,7 @@ Module for visualisations on comparisons between point clouds.
 
 import matplotlib.pyplot as plt
 import pcfingerprint
+from pcfingerprint.utils import subsample_points, _validate_classes
 import numpy as np
 
 plt.rcParams["axes.spines.right"] = False
@@ -13,31 +14,6 @@ plt.rcParams["axes.grid"] = True
 plt.rcParams["axes.grid.which"] = "both"
 plt.rcParams["grid.alpha"] = 1
 plt.rcParams["grid.color"] = "#cccccc"
-
-
-def subsample_points(pc, max_n_points: int = 500_000):
-    """
-    Randomly subsample the point cloud to a maximum number of points.
-    If the point cloud has less points than the specified maximum, it will be returned unchanged.
-
-    :param pc: The input point cloud to be subsampled.
-    :type pc: PointCloud
-    :param max_n_points: The maximum number of points to subsample to.
-    :type max_n_points: int
-
-    :return: The subsampled point cloud and the indices of the points that were kept.
-    :rtype: tuple(PointCloud, np.ndarray)
-    """
-    num_points = pc.coords.shape[0]
-    if num_points > max_n_points:
-        indices = np.random.choice(num_points, max_n_points, replace=False)
-        pc = pc.mask(indices)
-        print(
-            f"Subsampled from {num_points} to {pc.coords.shape[0]} points for visualization."
-        )
-    else:
-        indices = np.arange(num_points)
-    return pc, indices
 
 
 def style_axis(ax):
@@ -324,7 +300,6 @@ def plot_histogram(
                 data, bins=bins, color="orange", alpha=0.7, density=normalize
             )
             axs[row, col].set_title(f"Simulated Point Cloud {i+1}")
-            axs[row, col].set_xlabel(attribute)
             axs[row, col].set_ylabel(ylabel)
             # add minor ticks
             axs[row, col].minorticks_on()
@@ -356,18 +331,6 @@ def plot_histogram_per_class(
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
-
-    def _validate_classes(pc):
-        try:
-            getattr(pc, "classification")
-        except AttributeError:
-            raise ValueError(
-                f"Point cloud does not have 'classification' attribute, cannot plot histogram per class."
-            )
-        if pc.classification is None or len(pc.classification) == 0:
-            raise ValueError(
-                f"Point cloud has empty 'classification' attribute, cannot plot histogram per class."
-            )
 
     _validate_classes(real_pc)
     for sim_pc in sim_pcs:

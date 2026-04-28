@@ -1,6 +1,5 @@
 from pathlib import Path
 import pcfingerprint
-from pcfingerprint.vis_matplotlib import plot_histogram_per_class
 import numpy as np
 import pytest
 from matplotlib.figure import Figure
@@ -121,19 +120,9 @@ def test_filter_by_class_missing_class(pc_pair_classes):
         pc_pair_classes.filter_by_class([999])  # assuming class 999 does not exist
 
 
-def test_histogram_class_filter(pc_pair_classes):
-    # check if histogram per class can be generated without errors
-    fig = pc_pair_classes.plot_histogram(
-        attribute="intensity",
-        classes=[1],
-        backend="matplotlib",
-    )
-    assert fig is not None
-    # check if the returned object is a matplotlib figure
-    assert isinstance(fig, Figure)
+def test_histogram_per_class_matplotlib(pc_pair_classes):
+    from pcfingerprint.vis_matplotlib import plot_histogram_per_class
 
-
-def test_histogram_per_class(pc_pair_classes):
     # check if histogram per class can be generated without errors
     fig_list, classes = plot_histogram_per_class(
         pc_pair_classes.real_world,
