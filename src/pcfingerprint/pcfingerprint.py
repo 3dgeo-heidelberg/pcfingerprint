@@ -406,6 +406,23 @@ class PointCloudPair:
             for sim_pc in self.simulated:
                 compute_geom_feat_pgeof(sim_pc, pgeof_features, radius, max_knn)
 
+    def compute_point_density_vapc(self, voxel_size: float, voxel_origin=None):
+        """
+        Compute voxel-based point density for all point clouds in the pair using VAPC.
+
+        :param voxel_size: Voxel edge length used for voxel-based feature computation.
+        :type voxel_size: float
+        :param voxel_origin: Optional voxel grid origin passed to the VAPC backend. If None, [0.0, 0.0, 0.0] is used.
+        :type voxel_origin: array-like, optional
+
+        :return: Tuple containing (voxel density for real world point cloud, list of voxel densities for simulated point clouds)
+        :rtype: tuple[float, list[float]]
+        """
+        # TODO: Should this function also return the vapc instance (cf. voxel features)?
+        compute_point_density_vapc(self.real_world, voxel_size, voxel_origin)
+        for sim_pc in self.simulated:
+            compute_point_density_vapc(sim_pc, voxel_size, voxel_origin)
+
     def compute_voxel_features(
         self,
         voxel_size: float,
