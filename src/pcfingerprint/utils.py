@@ -72,6 +72,41 @@ def _build_structured_additional_dimensions(point_cloud):
     return additional_dimensions
 
 
+def match_representative_points_to_indices(point_coords, representative_coords):
+    """Return original point indices for representative voxel points.
+
+    The representative coordinates produced by VAPC are copied from the
+    original point cloud, so an exact coordinate match is the preferred path.
+    If a coordinate appears multiple times, the first unused match is chosen.
+    """
+    point_coords = np.asarray(point_coords)
+    representative_coords = np.asarray(representative_coords)
+
+    if representative_coords.size == 0:
+        return np.array([], dtype=int)
+
+    coord_lookup = {}
+    for point_index, coord in enumerate(point_coords):
+        coord_lookup.setdefault(tuple(coord.tolist()), []).append(point_index)
+
+    representative_indices = np.empty(representative_coords.shape[0], dtype=int)
+    for rep_index, coord in enumerate(representative_coords):
+        coord_key = tuple(coord.tolist())
+        matches = coord_lookup.get(coord_key)
+        if matches:
+            representative_indices[rep_index] = matches.pop(0)
+            continue
+
+        close_matches = np.where(np.all(np.isclose(point_coords, coord), axis=1))[0]
+        if close_matches.size == 0:
+            raise ValueError(
+                "Could not map representative voxel coordinates back to point indices."
+            )
+        representative_indices[rep_index] = close_matches[0]
+
+    return representative_indices
+
+
 def point_cloud_to_vapc(
     point_cloud,
     voxel_size: float,

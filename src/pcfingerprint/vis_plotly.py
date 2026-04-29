@@ -8,6 +8,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import pandas as pd
 from jinja2 import Template
 import pcfingerprint
 from pcfingerprint.utils import subsample_points, _validate_classes
@@ -133,6 +134,64 @@ def plot_grid_3d(num_plots):
     )
 
     return fig, nrows, ncols
+
+
+def _histogram_bin_edges(values_list, bins: int) -> np.ndarray:
+    """Return shared histogram bin edges for multiple data series."""
+    arrays = [np.asarray(values) for values in values_list if values is not None]
+    if not arrays:
+        return np.linspace(0.0, 1.0, bins + 1)
+
+    combined = np.concatenate([array[np.isfinite(array)] for array in arrays])
+    if combined.size == 0:
+        return np.linspace(0.0, 1.0, bins + 1)
+
+    min_value = float(np.min(combined))
+    max_value = float(np.max(combined))
+    if min_value == max_value:
+        padding = 0.5 if min_value == 0 else max(abs(min_value) * 0.05, 0.5)
+        min_value -= padding
+        max_value += padding
+
+    return np.linspace(min_value, max_value, bins + 1)
+
+
+def _histogram_bar_trace(
+    values,
+    bin_edges: np.ndarray,
+    name: str,
+    marker_color: str,
+    opacity: float,
+    histnorm: str = None,
+    showlegend: bool = True,
+) -> go.Bar:
+    """Create a lightweight bar trace that mimics a Plotly histogram."""
+    array = np.asarray(values)
+    array = array[np.isfinite(array)]
+
+    if array.size == 0:
+        counts = np.zeros(len(bin_edges) - 1)
+    else:
+        counts, _ = np.histogram(array, bins=bin_edges)
+
+    counts = counts.astype(float)
+    bin_widths = np.diff(bin_edges)
+
+    if histnorm == "probability density":
+        total = counts.sum()
+        if total > 0:
+            counts = counts / (total * bin_widths)
+
+    return go.Bar(
+        x=bin_edges[:-1],
+        y=counts,
+        width=bin_widths,
+        name=name,
+        marker_color=marker_color,
+        opacity=opacity,
+        showlegend=showlegend,
+        marker_line_width=0,
+    )
 
 
 def plot_3d_scatter(
@@ -267,6 +326,7 @@ def plot_histogram(
         pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute)
         for sim_pc in sim_pcs
     ]
+    bin_edges = _histogram_bin_edges([real_data, *sim_data], bins)
 
     if overlay:  # overlay histograms with transparency
         fig = go.Figure()
@@ -278,30 +338,29 @@ def plot_histogram(
         )
         # real world
         fig.add_trace(
-            go.Histogram(
-                x=real_data,
-                histnorm="probability density" if normalize else None,
+            _histogram_bar_trace(
+                real_data,
+                bin_edges,
                 name="Real World Point Cloud",
                 marker_color="blue",
-                nbinsx=bins,
                 opacity=0.7,
+                histnorm="probability density" if normalize else None,
             )
         )
         # simulated
         for i, data in enumerate(sim_data):
             color = colors[i]
             fig.add_trace(
-                go.Histogram(
-                    x=data,
-                    histnorm="probability density" if normalize else None,
+                _histogram_bar_trace(
+                    data,
+                    bin_edges,
                     name=f"Simulated Point Cloud {i+1}",
-                    nbinsx=bins,
                     marker_color=color,
                     opacity=0.3,
+                    histnorm="probability density" if normalize else None,
                 )
             )
         fig.update_layout(barmode="overlay", xaxis_title=attribute, yaxis_title=ylabel)
-        fig.update_traces(opacity=0.7)
 
         return fig
     else:  # plot histograms side by side
@@ -310,21 +369,21 @@ def plot_histogram(
         fig, nrows, ncols = plot_grid(total_plots)
 
         # get max frequency to scale y-axis equally
-        max_freq = 0
-        max_freq = max(max_freq, max(np.histogram(real_data, bins=bins)[0]))
-        for data in sim_data:
-            max_freq = max(max_freq, max(np.histogram(data, bins=bins)[0]))
         histnorm = "probability density" if normalize else None
+        max_freq = 0
+        for data in [real_data, *sim_data]:
+            counts, _ = np.histogram(data, bins=bin_edges)
+            max_freq = max(max_freq, float(np.max(counts)) if counts.size else 0)
 
         # ax 0 is always real pc
         fig.add_trace(
-            go.Histogram(
-                x=real_data,
-                nbinsx=bins,
-                histnorm=histnorm,
+            _histogram_bar_trace(
+                real_data,
+                bin_edges,
                 name="Real World Point Cloud",
                 marker_color="blue",
                 opacity=0.7,
+                histnorm=histnorm,
                 showlegend=False,
             ),
             row=1,
@@ -339,15 +398,15 @@ def plot_histogram(
             row = subplot_index // ncols + 1
             col = subplot_index % ncols + 1
             fig.add_trace(
-                go.Histogram(
-                    x=data,
-                    nbinsx=bins,
-                    histnorm=histnorm,
+                _histogram_bar_trace(
+                    data,
+                    bin_edges,
                     name=f"Simulated Point Cloud {i + 1}",
                     marker_color=px.colors.qualitative.Plotly[
                         i % len(px.colors.qualitative.Plotly)
                     ],
                     opacity=0.7,
+                    histnorm=histnorm,
                     showlegend=False,
                 ),
                 row=row,

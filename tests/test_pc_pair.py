@@ -120,6 +120,20 @@ def test_filter_by_class_missing_class(pc_pair_classes):
         pc_pair_classes.filter_by_class([999])  # assuming class 999 does not exist
 
 
+def test_filter_by_class_preserves_voxel_features(pc_pair_classes):
+    pc_pair_classes.compute_voxel_features(voxel_size=1.0, feature_names=["count"])
+
+    pc_pair_filtered = pc_pair_classes.filter_by_class([1])
+
+    for filtered_pc in [pc_pair_filtered.real_world, *pc_pair_filtered.simulated]:
+        for feat_name, feat_value in filtered_pc.voxel_features.items():
+            feat_data, voxel_coords, rep_indices = feat_value
+            assert feat_data.shape[0] == voxel_coords.shape[0]
+            assert feat_data.shape[0] == rep_indices.shape[0]
+            assert np.all(filtered_pc.classification[rep_indices] == 1)
+            assert np.allclose(voxel_coords, filtered_pc.coords[rep_indices])
+
+
 def test_histogram_per_class_matplotlib(pc_pair_classes):
     from pcfingerprint.vis_matplotlib import plot_histogram_per_class
 

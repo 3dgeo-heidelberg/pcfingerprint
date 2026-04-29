@@ -10,7 +10,12 @@ from pcfingerprint.geometric_features import (
     compute_point_density_vapc,
 )
 from pcfingerprint.report import generate_report
-from pcfingerprint.utils import shift_to_zero, standardize, scale_robust
+from pcfingerprint.utils import (
+    shift_to_zero,
+    standardize,
+    scale_robust,
+    match_representative_points_to_indices,
+)
 from pathlib import Path
 from pgeof import EFeatureID
 import jakteristics
@@ -71,6 +76,40 @@ class PointCloud:
         else:
             raise ValueError("PointCloud intensity is not set.")
 
+    def _selection_mask_and_index_map(self, indices):
+        if isinstance(indices, np.ndarray) and indices.dtype == bool:
+            if indices.shape[0] != self.coords.shape[0]:
+                raise ValueError("Boolean mask length does not match point cloud size.")
+            selected_indices = np.flatnonzero(indices)
+        else:
+            selected_indices = np.asarray(indices, dtype=int)
+
+        point_mask = np.zeros(self.coords.shape[0], dtype=bool)
+        point_mask[selected_indices] = True
+
+        index_map = np.full(self.coords.shape[0], -1, dtype=int)
+        index_map[selected_indices] = np.arange(selected_indices.shape[0])
+        return point_mask, index_map
+
+    def _mask_voxel_feature(self, feat_data, point_mask, index_map):
+        if not isinstance(feat_data, tuple) or len(feat_data) < 2:
+            return feat_data
+
+        voxel_values = feat_data[0]
+        voxel_coords = feat_data[1]
+        if len(feat_data) > 2 and feat_data[2] is not None:
+            rep_indices = np.asarray(feat_data[2], dtype=int)
+        else:
+            rep_indices = match_representative_points_to_indices(
+                self.coords, voxel_coords
+            )
+
+        voxel_mask = point_mask[rep_indices]
+        filtered_values = voxel_values[voxel_mask]
+        filtered_coords = voxel_coords[voxel_mask]
+        filtered_rep_indices = index_map[rep_indices[voxel_mask]]
+        return (filtered_values, filtered_coords, filtered_rep_indices)
+
     def filter_by_class(self, classes: list[int]):
         """
         Filter the point cloud to specified classes using the "classification" attribute (if present).
@@ -108,6 +147,7 @@ class PointCloud:
         :rtype: PointCloud
         """
         if self.coords is not None:
+            point_mask, index_map = self._selection_mask_and_index_map(indices)
             new_pc = PointCloud()
             new_pc.coords = self.coords[indices]
             # copy over all other attributes if they exist
@@ -133,6 +173,11 @@ class PointCloud:
                     UserWarning,
                 )
                 new_pc.geometric_features[feat_name] = feat_data[indices]
+            # voxel features
+            for feat_name, feat_data in self.voxel_features.items():
+                new_pc.voxel_features[feat_name] = self._mask_voxel_feature(
+                    feat_data, point_mask, index_map
+                )
             return new_pc
         else:
             raise ValueError("PointCloud coordinates are not set.")

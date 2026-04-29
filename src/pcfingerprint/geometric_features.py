@@ -5,6 +5,7 @@ Module for calculating geometric features on point clouds.
 import numpy as np
 import warnings
 from pcfingerprint.utils import point_cloud_to_vapc
+from pcfingerprint.utils import match_representative_points_to_indices
 
 
 def compute_point_density_jakteristics(
@@ -290,12 +291,16 @@ def compute_geom_feat_vapc(
     )
     vapc.compute_features(feature_names=sel_feats)  # populates vapc.out
     vapc.compute_closest_to_centroids()  # TODO: also add other option here?
+    representative_indices = match_representative_points_to_indices(
+        point_cloud.coords, vapc.closest_to_centroids
+    )
 
     # Store computed VAPC outputs under voxel_features
     for feat_name, feat_data in vapc.out.items():
         point_cloud.voxel_features[f"{feat_name}_v{voxel_size}"] = (
             feat_data,
             vapc.closest_to_centroids,
+            representative_indices,
         )
 
     return vapc
