@@ -6,7 +6,10 @@ start_time = time.time()
 # load data
 data_folder = Path("data/forest")
 report_folder = Path("output_report_tls_virtual_forest")
-pc_pair = pcfingerprint.PointCloudPair(standardize_intensity=False, shift_z=True)
+class_mapping = {0: "grass", 1: "ground", 2: "trunk"}
+pc_pair = pcfingerprint.PointCloudPair(
+    standardize_intensity=False, shift_z=True, class_mapping=class_mapping
+)
 pc_pair.load_real_world(data_folder / "plot_10_original_test.laz")
 pc_pair.load_simulated(list(data_folder.glob("plot_10_simulated_test.laz")))
 print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
@@ -35,29 +38,14 @@ report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
     output_folder=report_folder,
-    attribute_list=["z", "density_r0.2", "linearity_r0.2"],
+    attribute_list=["z", "density_r0.2", "linearity_r0.2", "classification"],
     summary_statistics=True,
+    class_distribution=True,
     return_number_metrics=True,
     visualizations=[
         "histogram_overlay",
         "3d_scatter",
         "histogram_per_class",
-    ],
-    vis_backend="plotly",
-)
-print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
-
-pc_pair_filtered = pc_pair.filter_by_class([1])  # filter to only class 1
-report_folder_class1 = Path("output_report_tls_virtual_forest_class1")
-# generate report only for one class
-pc_pair_filtered.generate_report(
-    output_folder=report_folder_class1,
-    attribute_list=["z", "density_r0.2", "linearity_r0.2"],
-    summary_statistics=True,
-    return_number_metrics=True,
-    visualizations=[
-        "histogram_overlay",
-        "3d_scatter",
     ],
     vis_backend="plotly",
 )
