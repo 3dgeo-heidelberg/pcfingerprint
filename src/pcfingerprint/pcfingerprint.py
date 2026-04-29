@@ -299,6 +299,11 @@ class PointCloudPair:
         :param backend: Backend to use for geometric feature computation. Options are "jakteristics" and "pgeof". If the specified backend does not support certain features, it will automatically fall back to the other backend for those features.
         :type backend: str
         """
+        # raise error if no point clouds loaded
+        if self.real_world.coords is None or self.simulated == []:
+            raise ValueError(
+                "Please load both real world and simulated point clouds before computing geometric features."
+            )
         # Compute geometric features for all point clouds
         radius = np.round(radius, 3)
         requested_features = list(feature_names)
@@ -397,6 +402,11 @@ class PointCloudPair:
         :return: Tuple containing (VAPC for real world point cloud, list of VAPCs for simulated point clouds)
         :rtype: tuple[py4dgeo.Vapc, list[py4dgeo.Vapc]]
         """
+        # raise error if no point clouds loaded
+        if self.real_world.coords is None or self.simulated == []:
+            raise ValueError(
+                "Please load both real world and simulated point clouds before computing voxel features."
+            )
         if feature_names is None:
             feature_names = []
         vapc_list = []
@@ -419,6 +429,11 @@ class PointCloudPair:
         :return: A new PointCloudPair object containing only points of the specified classes.
         :rtype: PointCloudPair
         """
+        # raise error if no point clouds loaded
+        if self.real_world.coords is None or self.simulated == []:
+            raise ValueError(
+                "Please load both real world and simulated point clouds before filtering by class."
+            )
         if self.real_world.classification is None or any(
             sim_pc.classification is None for sim_pc in self.simulated
         ):
@@ -448,6 +463,11 @@ class PointCloudPair:
         vis_backend: str = "matplotlib",
         preview: bool = True,
     ):
+        # raise error if no point clouds loaded
+        if self.real_world.coords is None or self.simulated == []:
+            raise ValueError(
+                "Please load both real world and simulated point clouds before generating report."
+            )
         # generate html report with histograms for each attribute in attribute_list
         if len(self.simulated) > 5:
             warnings.warn(
