@@ -14,6 +14,7 @@ We recommend using a virtual environment to manage dependencies, e.g., `conda`/`
 
 ```bash
 mamba create -n pcfingerprint python=3.13
+mamba activate pcfingerprint
 ```
 
 ### Building from source using pip

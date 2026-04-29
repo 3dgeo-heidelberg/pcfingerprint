@@ -49,12 +49,35 @@ def plot_3d_scatter(
     :return: The matplotlib figure object containing the 3D scatter plot.
     :rtype: matplotlib.figure.Figure
     """
-    # subsample points if necessary
-    real_pc, subsample_indices = subsample_points(real_pc, max_n_points)
-    sim_pc_sub = [
-        subsample_points(sim_pc, max_n_points) for i, sim_pc in enumerate(sim_pcs)
+    # only do subsampling if attributes is not voxel-based
+    if attribute not in real_pc.voxel_features:
+        # subsample points if necessary
+        real_pc, subsample_indices = subsample_points(real_pc, max_n_points)
+        sim_pc_sub = [
+            subsample_points(sim_pc, max_n_points) for i, sim_pc in enumerate(sim_pcs)
+        ]
+        sim_pcs, sim_subsample_indices = zip(*sim_pc_sub)
+        real_pc_pl = real_pc.coords
+        sim_pc_pl = [sim_pc.coords for sim_pc in sim_pcs]
+
+        if attribute is None:
+            print(
+                "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
+            )
+            attribute = "z"
+        print(f"Generating 3D scatter plot colored by {attribute}...")
+    else:
+        real_pc_pl = real_pc.voxel_features[attribute][1]  # closest_to_centroids
+        sim_pc_pl = [
+            sim_pc.voxel_features[attribute][1] for sim_pc in sim_pcs
+        ]  # closest_to_centroids
+
+    # get attribute data
+    real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
+    sim_data = [
+        pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute)
+        for sim_pc in sim_pcs
     ]
-    sim_pcs, sim_subsample_indices = zip(*sim_pc_sub)
 
     if overlay:
         # overlay all point clouds in one plot - only really makes sense for two point clouds
@@ -63,9 +86,9 @@ def plot_3d_scatter(
         colors = plt.cm.get_cmap("tab10", n_colours)
         # real world
         p = ax.scatter(
-            real_pc.coords[:, 0],
-            real_pc.coords[:, 1],
-            real_pc.coords[:, 2],
+            real_pc_pl[:, 0],
+            real_pc_pl[:, 1],
+            real_pc_pl[:, 2],
             c=colors(0),
             s=0.1,
             label="Real World Point Cloud",
@@ -74,9 +97,9 @@ def plot_3d_scatter(
         for i, sim_pc in enumerate(sim_pcs):
             color = colors(i + 1)
             ax.scatter(
-                sim_pc.coords[:, 0],
-                sim_pc.coords[:, 1],
-                sim_pc.coords[:, 2],
+                sim_pc_pl[i][:, 0],
+                sim_pc_pl[i][:, 1],
+                sim_pc_pl[i][:, 2],
                 c=color,
                 s=0.1,
                 label=f"Simulated Point Cloud {i+1}",
@@ -87,9 +110,9 @@ def plot_3d_scatter(
         ax.set_zlabel("Z")
         ax.set_box_aspect(
             (
-                np.ptp(real_pc.coords[:, 0]),
-                np.ptp(real_pc.coords[:, 1]),
-                np.ptp(real_pc.coords[:, 2]),
+                np.ptp(real_pc_pl[:, 0]),
+                np.ptp(real_pc_pl[:, 1]),
+                np.ptp(real_pc_pl[:, 2]),
             )
         )
         plt.legend()
@@ -100,13 +123,6 @@ def plot_3d_scatter(
             )
             attribute = "z"
         print(f"Generating 3D scatter plot colored by {attribute}...")
-
-        # get attribute data
-        real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
-        sim_data = [
-            pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute)
-            for sim_pc in sim_pcs
-        ]
 
         # determine plot grid based on inputs
         if len(sim_pcs) == 1:
@@ -134,9 +150,9 @@ def plot_3d_scatter(
 
         # ax 0 is always real pc
         p = axs[0, 0].scatter(
-            real_pc.coords[:, 0],
-            real_pc.coords[:, 1],
-            real_pc.coords[:, 2],
+            real_pc_pl[:, 0],
+            real_pc_pl[:, 1],
+            real_pc_pl[:, 2],
             c=real_data,
             cmap="viridis",
             s=0.2,
@@ -148,18 +164,18 @@ def plot_3d_scatter(
         # equal scaling
         axs[0, 0].set_box_aspect(
             (
-                np.ptp(real_pc.coords[:, 0]),
-                np.ptp(real_pc.coords[:, 1]),
-                np.ptp(real_pc.coords[:, 2]),
+                np.ptp(real_pc_pl[:, 0]),
+                np.ptp(real_pc_pl[:, 1]),
+                np.ptp(real_pc_pl[:, 2]),
             )
         )
         for i, sim_pc in enumerate(sim_pcs):
             row = (i + 1) // ncols
             col = (i + 1) % ncols
             axs[row, col].scatter(
-                sim_pc.coords[:, 0],
-                sim_pc.coords[:, 1],
-                sim_pc.coords[:, 2],
+                sim_pc_pl[i][:, 0],
+                sim_pc_pl[i][:, 1],
+                sim_pc_pl[i][:, 2],
                 c=sim_data[i],
                 cmap="viridis",
                 s=0.2,
@@ -171,9 +187,9 @@ def plot_3d_scatter(
             # equal scaling
             axs[row, col].set_box_aspect(
                 (
-                    np.ptp(sim_pc.coords[:, 0]),
-                    np.ptp(sim_pc.coords[:, 1]),
-                    np.ptp(sim_pc.coords[:, 2]),
+                    np.ptp(sim_pc_pl[i][:, 0]),
+                    np.ptp(sim_pc_pl[i][:, 1]),
+                    np.ptp(sim_pc_pl[i][:, 2]),
                 )
             )
         # colorbar to the right side spanning all rows

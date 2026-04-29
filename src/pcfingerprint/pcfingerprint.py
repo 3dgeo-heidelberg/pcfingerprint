@@ -3,12 +3,18 @@ import numpy as np
 import laspy
 from pcfingerprint.geometric_features import (
     compute_geom_feat_pgeof,
-    compute_point_density_jakteristics,
+    compute_geom_feat_vapc,
+    compute_density_jakteristics,
     compute_geom_feat_jakteristics,
-    compute_point_density_pgeof,
+    compute_density_pgeof,
 )
 from pcfingerprint.report import generate_report
-from pcfingerprint.utils import shift_to_zero, standardize, scale_robust
+from pcfingerprint.utils import (
+    shift_to_zero,
+    standardize,
+    scale_robust,
+    match_representative_points_to_indices,
+)
 from pathlib import Path
 from pgeof import EFeatureID
 import jakteristics
@@ -26,19 +32,15 @@ class PointCloud:
     ):
         self.coords = coords  # Nx3 array of point coordinates
         self.source = None  # source file path
-        self.kd_tree = None  # KDTree for spatial queries
         self.gps_time = gps_time  # float array
         self.return_number = return_number  # int array
         self.number_of_returns = number_of_returns  # int array
         self.intensity = intensity  # int array
         self.classification = classification  # int array for point classification
-        self.point_density = None  # float array
-        self.point_density_radius = None  # radius used for point density
-        self.normals = None  # Nx3 array of normal vectors
-        self.normal_radius = None  # radius used for normal estimation
         self.geometric_features = {}  # dict of feature name to float array
-        self.voxel_size = None  # size of voxels (float)
-        self.voxel_indices = None  # Nx3 array of voxel indices (int)
+        self.voxel_features = (
+            {}
+        )  # dict of feature name to float array for voxel-based features
         self.is_outlier = None  # boolean array
 
     def shift_z_to_zero(self):
@@ -68,6 +70,40 @@ class PointCloud:
             self.intensity = standardize(self.intensity)
         else:
             raise ValueError("PointCloud intensity is not set.")
+
+    def _selection_mask_and_index_map(self, indices):
+        if isinstance(indices, np.ndarray) and indices.dtype == bool:
+            if indices.shape[0] != self.coords.shape[0]:
+                raise ValueError("Boolean mask length does not match point cloud size.")
+            selected_indices = np.flatnonzero(indices)
+        else:
+            selected_indices = np.asarray(indices, dtype=int)
+
+        point_mask = np.zeros(self.coords.shape[0], dtype=bool)
+        point_mask[selected_indices] = True
+
+        index_map = np.full(self.coords.shape[0], -1, dtype=int)
+        index_map[selected_indices] = np.arange(selected_indices.shape[0])
+        return point_mask, index_map
+
+    def _mask_voxel_feature(self, feat_data, point_mask, index_map):
+        if not isinstance(feat_data, tuple) or len(feat_data) < 2:
+            return feat_data
+
+        voxel_values = feat_data[0]
+        voxel_coords = feat_data[1]
+        if len(feat_data) > 2 and feat_data[2] is not None:
+            rep_indices = np.asarray(feat_data[2], dtype=int)
+        else:
+            rep_indices = match_representative_points_to_indices(
+                self.coords, voxel_coords
+            )
+
+        voxel_mask = point_mask[rep_indices]
+        filtered_values = voxel_values[voxel_mask]
+        filtered_coords = voxel_coords[voxel_mask]
+        filtered_rep_indices = index_map[rep_indices[voxel_mask]]
+        return (filtered_values, filtered_coords, filtered_rep_indices)
 
     def filter_by_class(self, classes: list[int]):
         """
@@ -106,14 +142,12 @@ class PointCloud:
         :rtype: PointCloud
         """
         if self.coords is not None:
+            point_mask, index_map = self._selection_mask_and_index_map(indices)
             new_pc = PointCloud()
             new_pc.coords = self.coords[indices]
             # copy over all other attributes if they exist
             if self.source is not None:
                 new_pc.source = self.source
-            if self.normals is not None:
-                new_pc.normals = self.normals[indices]
-                new_pc.normal_radius = self.normal_radius
             if self.gps_time is not None:
                 new_pc.gps_time = self.gps_time[indices]
             if self.return_number is not None:
@@ -124,13 +158,6 @@ class PointCloud:
                 new_pc.intensity = self.intensity[indices]
             if self.classification is not None:
                 new_pc.classification = self.classification[indices]
-            if self.point_density is not None:
-                warnings.warn(
-                    "Masking point density. If using mask to subset points, please recompute point density",
-                    UserWarning,
-                )
-                new_pc.point_density = self.point_density[indices]
-                new_pc.point_density_radius = self.point_density_radius
             # geometric features
             for feat_name, feat_data in self.geometric_features.items():
                 warnings.warn(
@@ -138,6 +165,11 @@ class PointCloud:
                     UserWarning,
                 )
                 new_pc.geometric_features[feat_name] = feat_data[indices]
+            # voxel features
+            for feat_name, feat_data in self.voxel_features.items():
+                new_pc.voxel_features[feat_name] = self._mask_voxel_feature(
+                    feat_data, point_mask, index_map
+                )
             return new_pc
         else:
             raise ValueError("PointCloud coordinates are not set.")
@@ -191,7 +223,7 @@ class PointCloudPair:
             raise ValueError(
                 f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
             )
-        self.real_world.source = filepath
+        self.real_world.source = Path(filepath)
         if self.shift_z:
             self.real_world.shift_z_to_zero()
         if self.shift_gps_time:
@@ -227,7 +259,7 @@ class PointCloudPair:
                 raise ValueError(
                     f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
                 )
-            self.simulated[-1].source = filepath
+            self.simulated[-1].source = Path(filepath)
         if self.shift_z:
             for pc in self.simulated:
                 pc.shift_z_to_zero()
@@ -247,44 +279,6 @@ class PointCloudPair:
         # if real world point cloud is already loaded, drop non-overlapping attributes
         if self.real_world.coords is not None:
             self.drop_attributes()
-
-    def compute_point_density(
-        self, radius: float = 2.0, max_knn: int = 50_000, backend: str = "jakteristics"
-    ):
-        """
-        Compute point density for all point clouds in the pair
-
-        :param radius: Search radius for point density computation
-        :type radius: float
-        :param max_knn: Maximum number of neighbors to consider for point density computation
-        :type max_knn: int
-        :param backend: Backend to use for point density computation. Options are "jakteristics" and "pgeof". If the specified backend does not support certain features, it will automatically fall back to the other backend for those features.
-        :type backend: str
-        """
-
-        # check if point density already computed
-        radius = np.round(radius, 3)
-        if (
-            self.real_world.point_density_radius == radius
-            and self.real_world.point_density is not None
-            and all(
-                sim_pc.point_density_radius == radius
-                and sim_pc.point_density is not None
-                for sim_pc in self.simulated
-            )
-        ):
-            return  # point density already computed
-        else:
-            if backend == "jakteristics":
-                compute_point_density_jakteristics(self.real_world, radius, max_knn)
-                for sim_pc in self.simulated:
-                    compute_point_density_jakteristics(sim_pc, radius, max_knn)
-            elif backend == "pgeof":
-                compute_point_density_pgeof(self.real_world, radius, max_knn)
-                for sim_pc in self.simulated:
-                    compute_point_density_pgeof(sim_pc, radius, max_knn)
-            else:
-                raise ValueError(f"Backend {backend} not supported.")
 
     def compute_geometric_features(
         self,
@@ -306,18 +300,35 @@ class PointCloudPair:
         :type backend: str
         """
         # Compute geometric features for all point clouds
+        radius = np.round(radius, 3)
+        requested_features = list(feature_names)
 
-        # check if features already computed
-        for f in feature_names:
-            radius = np.round(radius, 3)
-            f_with_radius = f + f"_r{radius}"
-            if f_with_radius in self.real_world.geometric_features and all(
-                f_with_radius in sim_pc.geometric_features for sim_pc in self.simulated
-            ):
-                # drop from feature_names
-                feature_names.remove(f)
+        density_requested = "density" in requested_features
+        feature_names = [f for f in requested_features if f != "density"]
+
+        if density_requested:
+            density_name = f"density_r{radius}"
+            density_already_computed = (
+                density_name in self.real_world.geometric_features
+                and all(
+                    density_name in sim_pc.geometric_features
+                    for sim_pc in self.simulated
+                )
+            )
+            if not density_already_computed:
+                if backend == "jakteristics":
+                    compute_density_jakteristics(self.real_world, radius, max_knn)
+                    for sim_pc in self.simulated:
+                        compute_density_jakteristics(sim_pc, radius, max_knn)
+                elif backend == "pgeof":
+                    compute_density_pgeof(self.real_world, radius, max_knn)
+                    for sim_pc in self.simulated:
+                        compute_density_pgeof(sim_pc, radius, max_knn)
+                else:
+                    raise ValueError(f"Backend {backend} not supported.")
+
         if feature_names == []:
-            return  # all features already computed
+            return  # all requested features already computed
 
         # check if all feature names available for the backend, if not, try fallback on other backend before raising error
         if backend == "pgeof":
@@ -366,6 +377,38 @@ class PointCloudPair:
             for sim_pc in self.simulated:
                 compute_geom_feat_pgeof(sim_pc, pgeof_features, radius, max_knn)
 
+    def compute_voxel_features(
+        self,
+        voxel_size: float,
+        voxel_origin=None,
+        feature_names: list[str] | None = None,
+    ):
+        """
+        Compute voxel-based geometric features for all point clouds in the pair using VAPC.
+
+        :param voxel_size: Voxel edge length used for voxel-based feature computation.
+        :type voxel_size: float
+        :param voxel_origin: Optional voxel grid origin passed to the VAPC backend. If None, [0.0, 0.0, 0.0] is used.
+        :type voxel_origin: array-like, optional
+        :param feature_names: List of VAPC features to compute. Supported features (py4dgeo v1.1) are "count", "density", "covariance", "eigenvalues",
+        "linearity", "planarity", "sphericity", "sum_of_eigenvalues","omnivariance", "eigenentropy", "anisotropy", "surface_variation". If empty, all available features will be computed.
+        :type feature_names: list[str] | None
+
+        :return: Tuple containing (VAPC for real world point cloud, list of VAPCs for simulated point clouds)
+        :rtype: tuple[py4dgeo.Vapc, list[py4dgeo.Vapc]]
+        """
+        if feature_names is None:
+            feature_names = []
+        vapc_list = []
+        for pc in [self.real_world] + self.simulated:
+            vapc = compute_geom_feat_vapc(pc, voxel_size, voxel_origin, feature_names)
+            vapc_list.append(vapc)
+
+        return (
+            vapc_list[0],
+            vapc_list[1:],
+        )  # return real world VAPC and list of simulated VAPCs
+
     def filter_by_class(self, classes: list[int]):
         """
         Filter the point clouds in the PointCloudPair to specified classes using the "classification" attribute (if present).
@@ -403,6 +446,7 @@ class PointCloudPair:
         return_number_metrics: bool = False,
         visualizations: list[str] = ["histogram_overlay"],
         vis_backend: str = "matplotlib",
+        preview: bool = True,
     ):
         # generate html report with histograms for each attribute in attribute_list
         if len(self.simulated) > 5:
@@ -421,6 +465,7 @@ class PointCloudPair:
             return_number_metrics=return_number_metrics,
             visualizations=visualizations,
             vis_backend=vis_backend,
+            preview=preview,
         )
 
     def write_point_clouds(self, output_folder: str):
@@ -434,6 +479,25 @@ class PointCloudPair:
         for sim_pc in self.simulated:
             sim_outpath = output_folder / Path(sim_pc.source).name
             write_las(sim_pc, sim_outpath)
+
+
+def write_voxelized_point_clouds(
+    vapc, filebase: str, reduce_to_feature="closest_to_centroids"
+) -> None:
+    """
+    Write voxelized point cloud (with voxel-based features) to disk as a LAS file
+
+    :param vapc: VAPC instance containing the voxelized point cloud and features
+    :type vapc: py4dgeo.Vapc
+    :param filebase: Base file path (without extension) to write the voxelized point cloud to. The final filename will be constructed as {filebase}_voxelized_{reduce_to_feature}_v{voxel_size}.laz
+    :type filebase: str
+    :param reduce_to_feature: The VAPC feature to reduce the voxelized point cloud to for writing. Supported options are "closest_to_centroids" (default), "centroid", and any other feature available in vapc.out. If "closest_to_centroids", the point closest to the voxel centroid will be written. If "centroid", the voxel centroid will be written. If another feature name, the point with the highest value for that feature in each voxel will be written.
+    :type reduce_to_feature: str
+    """
+    vapc = vapc.reduce_to_feature(feature_name=reduce_to_feature)
+    suffix = f"_voxelized_{reduce_to_feature}_v{vapc.voxel_size}.laz"
+    outpath = Path(str(filebase) + suffix)
+    vapc.save_as_las(outpath)
 
 
 def read_las_file(filepath):
@@ -590,18 +654,6 @@ def write_las(
         data = getattr(pc, field)
         if data is not None:
             las[field] = data
-    # some attributes first require attribute name handling by adding a suffix (e.g., search radius)
-    # point density and normals
-    if pc.point_density is not None:
-        pdens_name = f"point_density_r{pc.point_density_radius}"
-        add_dimension_to_laz(las, pc.point_density, pdens_name)
-    if pc.normals is not None:
-        normal_x_name = f"normal_x_r{pc.normal_radius}"
-        normal_y_name = f"normal_y_r{pc.normal_radius}"
-        normal_z_name = f"normal_z_r{pc.normal_radius}"
-        add_dimension_to_laz(las, pc.normals[:, 0], normal_x_name)
-        add_dimension_to_laz(las, pc.normals[:, 1], normal_y_name)
-        add_dimension_to_laz(las, pc.normals[:, 2], normal_z_name)
     # geometric features (here the feature name already includes the radius suffix)
     for feat_name, feat_data in pc.geometric_features.items():
         add_dimension_to_laz(las, feat_data, feat_name)
@@ -648,17 +700,13 @@ def get_attribute_data(pc: PointCloud, attribute: str):
     # search for attribute in all possible locations
     if hasattr(pc, attribute):
         data = getattr(pc, attribute)
-    elif attribute in ["x", "y", "z"]:  # similarly for normals?
+    elif attribute in ["x", "y", "z"]:
         coord_index = {"x": 0, "y": 1, "z": 2}[attribute]
         data = pc.coords[:, coord_index]
     elif any(attribute in key for key in pc.geometric_features.keys()):
-        geom_feats = [key for key in pc.geometric_features.keys() if attribute in key]
-        if len(geom_feats) > 1:
-            warnings.warn(
-                f"Multiple geometric features match attribute {attribute}: {geom_feats}. Using first match.\nConsider using full feature name with radius suffix.\n"
-                f"Available geometric features: {list(pc.geometric_features.keys())}"
-            )
-        data = pc.geometric_features[geom_feats[0]]
+        data = pc.geometric_features[attribute]
+    elif any(attribute in key for key in pc.voxel_features.keys()):
+        data = pc.voxel_features[attribute][0]
     else:
         raise ValueError(f"Attribute {attribute} not found in point clouds.")
 
