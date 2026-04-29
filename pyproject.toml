@@ -30,6 +30,5 @@ dependencies = [
     "jinja2",
     "numerous-html-report-generator",
     "pgeof",
-    "py4dgeo",
-    "ipykernel"
+    "py4dgeo"
 ]
