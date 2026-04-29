@@ -427,7 +427,9 @@ def generate_report(
         tab_content_hists = {}
         tab_content_hists_per_class = {}
 
-        if summary_statistics:
+        if summary_statistics and not (
+            class_distribution and attribute == "classification"
+        ):
             # compute summary statistics
             stats_real = stats.compute_statistics(real_data)
             stats_sim = [stats.compute_statistics(data) for data in sim_data]
