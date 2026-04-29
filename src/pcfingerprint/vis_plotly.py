@@ -8,7 +8,6 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import pandas as pd
 from jinja2 import Template
 import pcfingerprint
 from pcfingerprint.utils import subsample_points, _validate_classes
