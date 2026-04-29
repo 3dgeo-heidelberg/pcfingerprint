@@ -41,6 +41,106 @@ def scale_robust(array):
     return (array - median) / iqr
 
 
+def _build_structured_additional_dimensions(point_cloud):
+    """Build py4dgeo-compatible structured per-point dimensions or return None."""
+    extra_dim_names = (
+        "gps_time",
+        "return_number",
+        "number_of_returns",
+        "intensity",
+        "classification",
+    )
+    n_points = point_cloud.coords.shape[0]
+    dtype_fields = []
+    values_by_name = {}
+    for dim in extra_dim_names:
+        values = getattr(point_cloud, dim, None)
+        if values is None:
+            continue
+        values = np.asarray(values).reshape(-1)
+        if values.shape[0] != n_points:
+            continue
+        dtype_fields.append((dim, values.dtype))
+        values_by_name[dim] = values
+
+    if not dtype_fields:
+        return None
+
+    additional_dimensions = np.empty(n_points, dtype=dtype_fields)
+    for dim, _ in dtype_fields:
+        additional_dimensions[dim] = values_by_name[dim]
+    return additional_dimensions
+
+
+def match_representative_points_to_indices(point_coords, representative_coords):
+    """Return original point indices for representative voxel points.
+
+    The representative coordinates produced by VAPC are copied from the
+    original point cloud, so an exact coordinate match is the preferred path.
+    If a coordinate appears multiple times, the first unused match is chosen.
+    """
+    point_coords = np.ascontiguousarray(np.asarray(point_coords))
+    representative_coords = np.ascontiguousarray(np.asarray(representative_coords))
+    if representative_coords.size == 0:
+        return np.array([], dtype=int)
+    row_dtype = np.dtype((np.void, point_coords.dtype.itemsize * point_coords.shape[1]))
+    point_row_keys = point_coords.view(row_dtype).ravel()
+    representative_row_keys = representative_coords.view(row_dtype).ravel()
+    sort_order = np.argsort(point_row_keys, kind="mergesort")
+    sorted_point_row_keys = point_row_keys[sort_order]
+    representative_indices = np.empty(representative_coords.shape[0], dtype=int)
+    used_exact_matches = {}
+    for rep_index, (coord, row_key) in enumerate(
+        zip(representative_coords, representative_row_keys)
+    ):
+        left = np.searchsorted(sorted_point_row_keys, row_key, side="left")
+        right = np.searchsorted(sorted_point_row_keys, row_key, side="right")
+        if right > left:
+            key_bytes = bytes(row_key)
+            used_count = used_exact_matches.get(key_bytes, 0)
+            if left + used_count < right:
+                representative_indices[rep_index] = sort_order[left + used_count]
+                used_exact_matches[key_bytes] = used_count + 1
+                continue
+
+        close_matches = np.where(np.all(np.isclose(point_coords, coord), axis=1))[0]
+        if close_matches.size == 0:
+            raise ValueError(
+                "Could not map representative voxel coordinates back to point indices."
+            )
+        representative_indices[rep_index] = close_matches[0]
+
+    return representative_indices
+
+
+def point_cloud_to_vapc(
+    point_cloud,
+    voxel_size: float,
+    voxel_origin: list[float] | None,
+    include_additional_dimensions: bool = True,
+):
+    """
+    Convert a PointCloud to a configured py4dgeo Vapc object.
+
+    :param point_cloud: PointCloud object with coords and optional per-point attributes.
+    :param voxel_size: Size of the voxels.
+    :param voxel_origin: Origin of the voxel grid (3D coordinates). If None, [0.0, 0.0, 0.0] is used.
+    :param include_additional_dimensions: Include structured per-point dimensions if available.
+    :return: py4dgeo.Vapc instance.
+    """
+    import py4dgeo
+
+    additional_dimensions = None
+    if include_additional_dimensions:
+        additional_dimensions = _build_structured_additional_dimensions(point_cloud)
+    epoch = py4dgeo.Epoch(
+        point_cloud.coords, additional_dimensions=additional_dimensions
+    )
+    if voxel_origin is None:
+        voxel_origin = [0.0, 0.0, 0.0]
+    return py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
+
+
 def subsample_points(pc, max_n_points: int = 500_000):
     """
     Randomly subsample the point cloud to a maximum number of points.

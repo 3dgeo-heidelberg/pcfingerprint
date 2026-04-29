@@ -4,9 +4,11 @@ Module for calculating geometric features on point clouds.
 
 import numpy as np
 import warnings
+from pcfingerprint.utils import point_cloud_to_vapc
+from pcfingerprint.utils import match_representative_points_to_indices
 
 
-def compute_point_density_jakteristics(
+def compute_density_jakteristics(
     point_cloud, radius: float, max_knn: int = 50_000
 ) -> None:
     """
@@ -33,15 +35,13 @@ def compute_point_density_jakteristics(
         point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] = (
             feats.reshape(-1)
         )
-    point_cloud.point_density = point_cloud.geometric_features[
-        f"number_of_neighbors_r{radius}"
-    ] / (4 / 3 * np.pi * radius**3)
-    point_cloud.point_density_radius = radius
+    point_cloud.geometric_features[f"density_r{radius}"] = (
+        point_cloud.geometric_features[f"number_of_neighbors_r{radius}"]
+        / (4 / 3 * np.pi * radius**3)
+    )
 
 
-def compute_point_density_pgeof(
-    point_cloud, radius: float, max_knn: int = 50_000
-) -> None:
+def compute_density_pgeof(point_cloud, radius: float, max_knn: int = 50_000) -> None:
     """
     Compute (volume) point density using PGEOF.
 
@@ -69,10 +69,10 @@ def compute_point_density_pgeof(
         # number of neighbors is the number of valid indices returned for each point - invalid indices have value -1
         num_neigh = (indices != -1).sum(axis=1)
         point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] = num_neigh
-    point_cloud.point_density = point_cloud.geometric_features[
-        f"number_of_neighbors_r{radius}"
-    ] / (4 / 3 * np.pi * radius**3)
-    point_cloud.point_density_radius = radius
+    point_cloud.geometric_features[f"density_r{radius}"] = (
+        point_cloud.geometric_features[f"number_of_neighbors_r{radius}"]
+        / (4 / 3 * np.pi * radius**3)
+    )
 
 
 def compute_geom_feat_jakteristics(
@@ -166,3 +166,139 @@ def compute_geom_feat_pgeof(
         feats = [feats]
     for i, f_name in enumerate(feature_names):
         point_cloud.geometric_features[f"{f_name}_r{radius}"] = feats[i].reshape(-1)
+
+
+####################################### Voxel-based computations #######################################
+
+
+def compute_density_vapc(
+    point_cloud, voxel_size: float, voxel_origin: list[float] | None
+):
+    """
+    Compute voxel-based point density using VAPC.
+
+    :param point_cloud: PointCloud object
+    :type point_cloud: PointCloud
+    :param voxel_size: Size of the voxels
+    :type voxel_size: float
+    :param voxel_origin: Origin of the voxel grid (3D coordinates). If None, [0.0, 0.0, 0.0] is used.
+    :type voxel_origin: list[float] or None
+
+    :return: VAPC instance
+    :rtype: py4dgeo.Vapc
+    """
+    import py4dgeo
+
+    py4dgeo.enable_timeit(False)
+    py4dgeo.enable_trace(False)
+    resolved_voxel_origin = (
+        [0.0, 0.0, 0.0] if voxel_origin is None else list(voxel_origin)
+    )
+    vapc = point_cloud_to_vapc(
+        point_cloud,
+        voxel_size=voxel_size,
+        voxel_origin=resolved_voxel_origin,
+        include_additional_dimensions=False,
+    )
+    voxel_density = (
+        vapc._compute_density()
+    )  # compute density using VAPC's internal method
+    # store computed voxel density under geometric_features
+    point_cloud.geometric_features[f"voxel_density_v{voxel_size}"] = voxel_density
+
+    return vapc
+
+
+def compute_geom_feat_vapc(
+    point_cloud,
+    voxel_size: float,
+    voxel_origin: list[float] | None,
+    feature_names: list[str],
+):
+    """
+    Compute voxel-based geometric features using VAPC.
+
+    :param point_cloud: PointCloud object
+    :type point_cloud: PointCloud
+    :param voxel_size: Size of the voxels
+    :type voxel_size: float
+    :param voxel_origin: Origin of the voxel grid (3D coordinates). If None, [0.0, 0.0, 0.0] is used.
+    :type voxel_origin: list[float] or None
+    :param feature_names: List of feature names to compute. Supported features depend on the underlying VAPC implementation.
+    :type feature_names: list[str]
+
+    :return: VAPC instance with computed features
+    :rtype: py4dgeo.Vapc
+
+    Available VAPC features (py4dgeo v1.1):
+    "count", "density", "centroid", "voxel_center", "local_centroid", "covariance",
+    "closest_to_voxel_centers", "closest_to_centroids", "eigenvalues", "linearity",
+    "planarity", "sphericity", "sum_of_eigenvalues", "omnivariance", "eigenentropy",
+    "anisotropy", "surface_variation".
+    """
+    import py4dgeo
+
+    py4dgeo.enable_timeit(False)
+    py4dgeo.enable_trace(False)
+    resolved_voxel_origin = (
+        [0.0, 0.0, 0.0] if voxel_origin is None else list(voxel_origin)
+    )
+
+    vapc_available_features = [
+        "count",
+        "density",
+        "centroid",
+        "voxel_center",
+        "local_centroid",
+        "covariance",
+        "closest_to_voxel_centers",
+        "closest_to_centroids",
+        "eigenvalues",
+        "linearity",
+        "planarity",
+        "sphericity",
+        "sum_of_eigenvalues",
+        "omnivariance",
+        "eigenentropy",
+        "anisotropy",
+        "surface_variation",
+    ]
+
+    if len(feature_names) == 0:
+        feature_names = vapc_available_features
+
+    sel_feats = [f for f in feature_names if f in vapc_available_features]
+    invalid_features = [f for f in feature_names if f not in vapc_available_features]
+    if invalid_features:
+        warnings.warn(
+            f"Unsupported VAPC features ignored: {invalid_features}. "
+            f"Available features: {vapc_available_features}",
+            UserWarning,
+        )
+    if len(sel_feats) == 0:
+        raise ValueError(
+            "No valid VAPC features selected. "
+            f"Available features: {vapc_available_features}"
+        )
+
+    vapc = point_cloud_to_vapc(
+        point_cloud,
+        voxel_size=voxel_size,
+        voxel_origin=resolved_voxel_origin,
+        include_additional_dimensions=True,
+    )
+    vapc.compute_features(feature_names=sel_feats)  # populates vapc.out
+    vapc.compute_closest_to_centroids()  # TODO: also add other option here?
+    representative_indices = match_representative_points_to_indices(
+        point_cloud.coords, vapc.closest_to_centroids
+    )
+
+    # Store computed VAPC outputs under voxel_features
+    for feat_name, feat_data in vapc.out.items():
+        point_cloud.voxel_features[f"{feat_name}_v{voxel_size}"] = (
+            feat_data,
+            vapc.closest_to_centroids,
+            representative_indices,
+        )
+
+    return vapc
