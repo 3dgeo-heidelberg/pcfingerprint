@@ -79,23 +79,29 @@ def match_representative_points_to_indices(point_coords, representative_coords):
     original point cloud, so an exact coordinate match is the preferred path.
     If a coordinate appears multiple times, the first unused match is chosen.
     """
-    point_coords = np.asarray(point_coords)
-    representative_coords = np.asarray(representative_coords)
-
+    point_coords = np.ascontiguousarray(np.asarray(point_coords))
+    representative_coords = np.ascontiguousarray(np.asarray(representative_coords))
     if representative_coords.size == 0:
         return np.array([], dtype=int)
-
-    coord_lookup = {}
-    for point_index, coord in enumerate(point_coords):
-        coord_lookup.setdefault(tuple(coord.tolist()), []).append(point_index)
-
+    row_dtype = np.dtype((np.void, point_coords.dtype.itemsize * point_coords.shape[1]))
+    point_row_keys = point_coords.view(row_dtype).ravel()
+    representative_row_keys = representative_coords.view(row_dtype).ravel()
+    sort_order = np.argsort(point_row_keys, kind="mergesort")
+    sorted_point_row_keys = point_row_keys[sort_order]
     representative_indices = np.empty(representative_coords.shape[0], dtype=int)
-    for rep_index, coord in enumerate(representative_coords):
-        coord_key = tuple(coord.tolist())
-        matches = coord_lookup.get(coord_key)
-        if matches:
-            representative_indices[rep_index] = matches.pop(0)
-            continue
+    used_exact_matches = {}
+    for rep_index, (coord, row_key) in enumerate(
+        zip(representative_coords, representative_row_keys)
+    ):
+        left = np.searchsorted(sorted_point_row_keys, row_key, side="left")
+        right = np.searchsorted(sorted_point_row_keys, row_key, side="right")
+        if right > left:
+            key_bytes = bytes(row_key)
+            used_count = used_exact_matches.get(key_bytes, 0)
+            if left + used_count < right:
+                representative_indices[rep_index] = sort_order[left + used_count]
+                used_exact_matches[key_bytes] = used_count + 1
+                continue
 
         close_matches = np.where(np.all(np.isclose(point_coords, coord), axis=1))[0]
         if close_matches.size == 0:
