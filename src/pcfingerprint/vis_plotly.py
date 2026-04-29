@@ -345,7 +345,6 @@ def plot_histogram(
                 bin_edges,
                 name="Real World Point Cloud",
                 marker_color=colors[0],
-                nbinsx=bins,
                 opacity=0.8,
             )
         )

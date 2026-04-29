@@ -41,7 +41,12 @@ report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
     output_folder=report_folder,
-    attribute_list=[f"density_v{voxel_size}", f"linearity_v{voxel_size}", "z"],
+    attribute_list=[
+        f"density_v{voxel_size}",
+        f"linearity_v{voxel_size}",
+        "z",
+        "classification",
+    ],
     summary_statistics=True,
     return_number_metrics=False,
     visualizations=[
@@ -50,6 +55,7 @@ pc_pair.generate_report(
         "3d_scatter",
     ],
     vis_backend="plotly",
+    class_distribution=True,
     preview=True,
 )
 print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
