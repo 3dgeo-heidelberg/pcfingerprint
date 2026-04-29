@@ -193,6 +193,27 @@ def _histogram_bar_trace(
     )
 
 
+def _classification_color_mapping(values_list):
+    """Return discrete colorscale data for classification attributes."""
+    class_values = np.unique(
+        np.concatenate([np.asarray(values).ravel() for values in values_list])
+    )
+    colors = px.colors.qualitative.Set1
+    mapped_colors = [colors[i % len(colors)] for i in range(len(class_values))]
+
+    if len(mapped_colors) == 1:
+        colorscale = [[0.0, mapped_colors[0]], [1.0, mapped_colors[0]]]
+    else:
+        colorscale = []
+        n_colors = len(mapped_colors)
+        for i, color in enumerate(mapped_colors):
+            start = i / n_colors
+            end = (i + 1) / n_colors
+            colorscale.extend([[start, color], [end, color]])
+
+    return class_values, colorscale
+
+
 def plot_3d_scatter(
     real_pc, sim_pcs: list, attribute: str = None, max_n_points: int = 50_000
 ):
@@ -231,15 +252,32 @@ def plot_3d_scatter(
     fig, nrows, ncols = plot_grid_3d(len(sim_pcs) + 1)
 
     # compute global vmin/vmax for a consistent color scale across subplots
-    try:
-        vmin = float(np.min(real_data))
-        vmax = float(np.max(real_data))
-        for data in sim_data:
-            vmin = min(vmin, float(np.min(data)))
-            vmax = max(vmax, float(np.max(data)))
-    except Exception:
-        vmin = None
-        vmax = None
+    if attribute == "classification":
+        class_values, colorscale = _classification_color_mapping([real_data, *sim_data])
+        real_data = np.searchsorted(class_values, np.asarray(real_data))
+        sim_data = [
+            np.searchsorted(class_values, np.asarray(data)) for data in sim_data
+        ]
+        vmin = 0
+        vmax = max(len(class_values) - 1, 0)
+        colorbar = dict(
+            title=attribute,
+            tickmode="array",
+            tickvals=list(range(len(class_values))),
+            ticktext=[str(value) for value in class_values],
+        )
+    else:
+        try:
+            vmin = float(np.min(real_data))
+            vmax = float(np.max(real_data))
+            for data in sim_data:
+                vmin = min(vmin, float(np.min(data)))
+                vmax = max(vmax, float(np.max(data)))
+        except Exception:
+            vmin = None
+            vmax = None
+        colorscale = "Viridis"
+        colorbar = dict(title=attribute)
 
     # real world
     fig.add_trace(
@@ -251,11 +289,11 @@ def plot_3d_scatter(
             marker=dict(
                 size=2,
                 color=real_data,
-                colorscale="Viridis",
+                colorscale=colorscale,
                 cmin=vmin,
                 cmax=vmax,
                 opacity=0.8,
-                colorbar=dict(title=attribute),
+                colorbar=colorbar,
             ),
             name="Real World Point Cloud",
         ),
@@ -277,7 +315,7 @@ def plot_3d_scatter(
                 marker=dict(
                     size=2,
                     color=sim_data[i],
-                    colorscale="Viridis",
+                    colorscale=colorscale,
                     cmin=vmin,
                     cmax=vmax,
                     opacity=0.8,

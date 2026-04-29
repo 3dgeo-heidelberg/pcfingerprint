@@ -148,13 +148,19 @@ def plot_3d_scatter(
         vmin = min(real_data.min(), min([data.min() for data in sim_data]))
         vmax = max(real_data.max(), max([data.max() for data in sim_data]))
 
+        # viridis for most attributes, but use a different colorscale for classification to better distinguish classes
+        if attribute == "classification":
+            cmap = plt.get_cmap("Set1", np.unique(real_data).size)
+        else:
+            cmap = "viridis"
+
         # ax 0 is always real pc
         p = axs[0, 0].scatter(
             real_pc_pl[:, 0],
             real_pc_pl[:, 1],
             real_pc_pl[:, 2],
             c=real_data,
-            cmap="viridis",
+            cmap=cmap,
             s=0.2,
             vmin=vmin,
             vmax=vmax,
@@ -177,7 +183,7 @@ def plot_3d_scatter(
                 sim_pc_pl[i][:, 1],
                 sim_pc_pl[i][:, 2],
                 c=sim_data[i],
-                cmap="viridis",
+                cmap=cmap,
                 s=0.2,
                 vmin=vmin,
                 vmax=vmax,
@@ -193,7 +199,13 @@ def plot_3d_scatter(
                 )
             )
         # colorbar to the right side spanning all rows
-        fig.colorbar(p, label=attribute, ax=axs[:, :], location="right")
+        if attribute == "classification":
+            cbar = fig.colorbar(
+                p, label=attribute, ax=axs[:, :], location="right", ticks=[]
+            )
+            cbar.ax.set_yticklabels([])
+        else:
+            fig.colorbar(p, label=attribute, ax=axs[:, :], location="right")
         # hide any unused subplots
         if len(sim_pcs) + 1 < nrows * ncols:
             axs[row, -1].axis("off")
