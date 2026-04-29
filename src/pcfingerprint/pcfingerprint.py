@@ -314,25 +314,16 @@ class PointCloudPair:
         feature_names = [f for f in requested_features if f != "density"]
 
         if density_requested:
-            density_name = f"density_r{radius}"
-            density_already_computed = (
-                density_name in self.real_world.geometric_features
-                and all(
-                    density_name in sim_pc.geometric_features
-                    for sim_pc in self.simulated
-                )
-            )
-            if not density_already_computed:
-                if backend == "jakteristics":
-                    compute_density_jakteristics(self.real_world, radius, max_knn)
-                    for sim_pc in self.simulated:
-                        compute_density_jakteristics(sim_pc, radius, max_knn)
-                elif backend == "pgeof":
-                    compute_density_pgeof(self.real_world, radius, max_knn)
-                    for sim_pc in self.simulated:
-                        compute_density_pgeof(sim_pc, radius, max_knn)
-                else:
-                    raise ValueError(f"Backend {backend} not supported.")
+            if backend == "jakteristics":
+                compute_density_jakteristics(self.real_world, radius, max_knn)
+                for sim_pc in self.simulated:
+                    compute_density_jakteristics(sim_pc, radius, max_knn)
+            elif backend == "pgeof":
+                compute_density_pgeof(self.real_world, radius, max_knn)
+                for sim_pc in self.simulated:
+                    compute_density_pgeof(sim_pc, radius, max_knn)
+            else:
+                raise ValueError(f"Backend {backend} not supported.")
 
         if feature_names == []:
             return  # all requested features already computed
