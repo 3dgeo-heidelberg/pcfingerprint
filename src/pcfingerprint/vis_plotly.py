@@ -136,24 +136,31 @@ def plot_grid_3d(num_plots):
 
 
 def plot_3d_scatter(
-    real_pc,
-    sim_pcs: list,
-    attribute: str = None,
-    max_n_points: int = 50_000,
+    real_pc, sim_pcs: list, attribute: str = None, max_n_points: int = 50_000
 ):
-    # subsample points if necessary
-    real_pc, subsample_indices = subsample_points(real_pc, max_n_points)
-    sim_pc_sub = [
-        subsample_points(sim_pc, max_n_points) for i, sim_pc in enumerate(sim_pcs)
-    ]
-    sim_pcs, sim_subsample_indices = zip(*sim_pc_sub)
+    # only do subsampling if attributes is not voxel-based
+    if attribute not in real_pc.voxel_features:
+        # subsample points if necessary
+        real_pc, subsample_indices = subsample_points(real_pc, max_n_points)
+        sim_pc_sub = [
+            subsample_points(sim_pc, max_n_points) for i, sim_pc in enumerate(sim_pcs)
+        ]
+        sim_pcs, sim_subsample_indices = zip(*sim_pc_sub)
 
-    if attribute is None:
-        print(
-            "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
-        )
-        attribute = "z"
-    print(f"Generating 3D scatter plot colored by {attribute}...")
+        real_pc_pl = real_pc.coords
+        sim_pc_pl = [sim_pc.coords for sim_pc in sim_pcs]
+
+        if attribute is None:
+            print(
+                "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
+            )
+            attribute = "z"
+        print(f"Generating 3D scatter plot colored by {attribute}...")
+    else:
+        # voxel-based: use centroid points for plotting but attribute values remain
+        # stored in voxel_features
+        real_pc_pl = real_pc.voxel_features[attribute][1]  # closest_to_centroids
+        sim_pc_pl = [sim_pc.voxel_features[attribute][1] for sim_pc in sim_pcs]
 
     # get attribute data
     real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
@@ -165,17 +172,30 @@ def plot_3d_scatter(
     # determine plot grid based on inputs
     fig, nrows, ncols = plot_grid_3d(len(sim_pcs) + 1)
 
+    # compute global vmin/vmax for a consistent color scale across subplots
+    try:
+        vmin = float(np.min(real_data))
+        vmax = float(np.max(real_data))
+        for data in sim_data:
+            vmin = min(vmin, float(np.min(data)))
+            vmax = max(vmax, float(np.max(data)))
+    except Exception:
+        vmin = None
+        vmax = None
+
     # real world
     fig.add_trace(
         go.Scatter3d(
-            x=real_pc.coords[:, 0],
-            y=real_pc.coords[:, 1],
-            z=real_pc.coords[:, 2],
+            x=real_pc_pl[:, 0],
+            y=real_pc_pl[:, 1],
+            z=real_pc_pl[:, 2],
             mode="markers",
             marker=dict(
                 size=2,
                 color=real_data,
                 colorscale="Viridis",
+                cmin=vmin,
+                cmax=vmax,
                 opacity=0.8,
                 colorbar=dict(title=attribute),
             ),
@@ -192,14 +212,16 @@ def plot_3d_scatter(
         col = subplot_index % ncols + 1
         fig.add_trace(
             go.Scatter3d(
-                x=sim_pc.coords[:, 0],
-                y=sim_pc.coords[:, 1],
-                z=sim_pc.coords[:, 2],
+                x=sim_pc_pl[i][:, 0],
+                y=sim_pc_pl[i][:, 1],
+                z=sim_pc_pl[i][:, 2],
                 mode="markers",
                 marker=dict(
                     size=2,
                     color=sim_data[i],
                     colorscale="Viridis",
+                    cmin=vmin,
+                    cmax=vmax,
                     opacity=0.8,
                 ),
                 name=f"Simulated Point Cloud {i + 1}",

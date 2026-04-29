@@ -38,6 +38,9 @@ class PointCloud:
         self.normals = None  # Nx3 array of normal vectors
         self.normal_radius = None  # radius used for normal estimation
         self.geometric_features = {}  # dict of feature name to float array
+        self.voxel_features = (
+            {}
+        )  # dict of feature name to float array for voxel-based features
         self.is_outlier = None  # boolean array
 
     def shift_z_to_zero(self):
@@ -427,6 +430,7 @@ class PointCloudPair:
         return_number_metrics: bool = False,
         visualizations: list[str] = ["histogram_overlay"],
         vis_backend: str = "matplotlib",
+        preview: bool = True,
     ):
         # generate html report with histograms for each attribute in attribute_list
         if len(self.simulated) > 5:
@@ -445,6 +449,7 @@ class PointCloudPair:
             return_number_metrics=return_number_metrics,
             visualizations=visualizations,
             vis_backend=vis_backend,
+            preview=preview,
         )
 
     def write_point_clouds(self, output_folder: str):
@@ -695,13 +700,9 @@ def get_attribute_data(pc: PointCloud, attribute: str):
         coord_index = {"x": 0, "y": 1, "z": 2}[attribute]
         data = pc.coords[:, coord_index]
     elif any(attribute in key for key in pc.geometric_features.keys()):
-        geom_feats = [key for key in pc.geometric_features.keys() if attribute in key]
-        if len(geom_feats) > 1:
-            warnings.warn(
-                f"Multiple geometric features match attribute {attribute}: {geom_feats}. Using first match.\nConsider using full feature name with radius suffix.\n"
-                f"Available geometric features: {list(pc.geometric_features.keys())}"
-            )
-        data = pc.geometric_features[geom_feats[0]]
+        data = pc.geometric_features[attribute]
+    elif any(attribute in key for key in pc.voxel_features.keys()):
+        data = pc.voxel_features[attribute][0]
     else:
         raise ValueError(f"Attribute {attribute} not found in point clouds.")
 

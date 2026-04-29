@@ -289,13 +289,13 @@ def compute_geom_feat_vapc(
         include_additional_dimensions=True,
     )
     vapc.compute_features(feature_names=sel_feats)  # populates vapc.out
+    vapc.compute_closest_to_centroids()  # TODO: also add other option here?
 
-    # Store computed VAPC outputs under geometric_features
-    # TODO: Either
-    # a) map voxel-based features to all points in point cloud and then store as point-wise geometric features
-    # OR b) store voxel-based features separately in the PointCloud object (e.g. in a new attribute voxel_features) instead of mixing with point-wise geometric features
-    # background: avoid shape mismatches, which cause errors in, e.g., subsampling
+    # Store computed VAPC outputs under voxel_features
     for feat_name, feat_data in vapc.out.items():
-        point_cloud.geometric_features[f"{feat_name}_v{voxel_size}"] = feat_data
+        point_cloud.voxel_features[f"{feat_name}_v{voxel_size}"] = (
+            feat_data,
+            vapc.closest_to_centroids,
+        )
 
     return vapc
