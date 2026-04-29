@@ -8,7 +8,7 @@ from pcfingerprint.utils import point_cloud_to_vapc
 from pcfingerprint.utils import match_representative_points_to_indices
 
 
-def compute_point_density_jakteristics(
+def compute_density_jakteristics(
     point_cloud, radius: float, max_knn: int = 50_000
 ) -> None:
     """
@@ -41,9 +41,7 @@ def compute_point_density_jakteristics(
     )
 
 
-def compute_point_density_pgeof(
-    point_cloud, radius: float, max_knn: int = 50_000
-) -> None:
+def compute_density_pgeof(point_cloud, radius: float, max_knn: int = 50_000) -> None:
     """
     Compute (volume) point density using PGEOF.
 
@@ -173,7 +171,7 @@ def compute_geom_feat_pgeof(
 ####################################### Voxel-based computations #######################################
 
 
-def compute_point_density_vapc(
+def compute_density_vapc(
     point_cloud, voxel_size: float, voxel_origin: list[float] | None
 ):
     """

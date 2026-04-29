@@ -12,10 +12,11 @@ pc_pair.load_simulated(list(data_folder.glob("uls_detailed_voxel*.laz")))
 print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
 
 pdens_start_time = time.time()
-# compute point density and geometric features
-pc_pair.compute_point_density(radius=0.5, backend="jakteristics")
-print("Point density computed.")
-print(f"Point density computed in {time.time() - pdens_start_time:.2f} seconds.")
+# compute density and geometric features
+pc_pair.compute_geometric_features(
+    feature_names=["density"], radius=0.5, backend="jakteristics"
+)
+print(f"Density computed in {time.time() - pdens_start_time:.2f} seconds.")
 
 geom_start_time = time.time()
 pc_pair.compute_geometric_features(
@@ -27,7 +28,7 @@ report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
     output_folder=report_folder,
-    attribute_list=["z", "point_density", "linearity", "intensity"],
+    attribute_list=["z", "density_r0.5", "linearity_r1.0", "intensity"],
     summary_statistics=True,
     return_number_metrics=True,
     visualizations=[

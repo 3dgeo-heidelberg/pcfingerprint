@@ -4,10 +4,9 @@ import laspy
 from pcfingerprint.geometric_features import (
     compute_geom_feat_pgeof,
     compute_geom_feat_vapc,
-    compute_point_density_jakteristics,
+    compute_density_jakteristics,
     compute_geom_feat_jakteristics,
-    compute_point_density_pgeof,
-    compute_point_density_vapc,
+    compute_density_pgeof,
 )
 from pcfingerprint.report import generate_report
 from pcfingerprint.utils import (
@@ -38,10 +37,6 @@ class PointCloud:
         self.number_of_returns = number_of_returns  # int array
         self.intensity = intensity  # int array
         self.classification = classification  # int array for point classification
-        self.point_density = None  # float array
-        self.point_density_radius = None  # radius used for point density
-        self.normals = None  # Nx3 array of normal vectors
-        self.normal_radius = None  # radius used for normal estimation
         self.geometric_features = {}  # dict of feature name to float array
         self.voxel_features = (
             {}
@@ -153,9 +148,6 @@ class PointCloud:
             # copy over all other attributes if they exist
             if self.source is not None:
                 new_pc.source = self.source
-            if self.normals is not None:
-                new_pc.normals = self.normals[indices]
-                new_pc.normal_radius = self.normal_radius
             if self.gps_time is not None:
                 new_pc.gps_time = self.gps_time[indices]
             if self.return_number is not None:
@@ -288,44 +280,6 @@ class PointCloudPair:
         if self.real_world.coords is not None:
             self.drop_attributes()
 
-    def compute_point_density(
-        self, radius: float = 2.0, max_knn: int = 50_000, backend: str = "jakteristics"
-    ):
-        """
-        Compute point density for all point clouds in the pair
-
-        :param radius: Search radius for point density computation
-        :type radius: float
-        :param max_knn: Maximum number of neighbors to consider for point density computation
-        :type max_knn: int
-        :param backend: Backend to use for point density computation. Options are "jakteristics" and "pgeof". If the specified backend does not support certain features, it will automatically fall back to the other backend for those features.
-        :type backend: str
-        """
-
-        # check if point density already computed
-        radius = np.round(radius, 3)
-        if (
-            self.real_world.point_density_radius == radius
-            and self.real_world.point_density is not None
-            and all(
-                sim_pc.point_density_radius == radius
-                and sim_pc.point_density is not None
-                for sim_pc in self.simulated
-            )
-        ):
-            return  # point density already computed
-        else:
-            if backend == "jakteristics":
-                compute_point_density_jakteristics(self.real_world, radius, max_knn)
-                for sim_pc in self.simulated:
-                    compute_point_density_jakteristics(sim_pc, radius, max_knn)
-            elif backend == "pgeof":
-                compute_point_density_pgeof(self.real_world, radius, max_knn)
-                for sim_pc in self.simulated:
-                    compute_point_density_pgeof(sim_pc, radius, max_knn)
-            else:
-                raise ValueError(f"Backend {backend} not supported.")
-
     def compute_geometric_features(
         self,
         feature_names: list[str],
@@ -346,18 +300,35 @@ class PointCloudPair:
         :type backend: str
         """
         # Compute geometric features for all point clouds
+        radius = np.round(radius, 3)
+        requested_features = list(feature_names)
 
-        # check if features already computed
-        for f in feature_names:
-            radius = np.round(radius, 3)
-            f_with_radius = f + f"_r{radius}"
-            if f_with_radius in self.real_world.geometric_features and all(
-                f_with_radius in sim_pc.geometric_features for sim_pc in self.simulated
-            ):
-                # drop from feature_names
-                feature_names.remove(f)
+        density_requested = "density" in requested_features
+        feature_names = [f for f in requested_features if f != "density"]
+
+        if density_requested:
+            density_name = f"density_r{radius}"
+            density_already_computed = (
+                density_name in self.real_world.geometric_features
+                and all(
+                    density_name in sim_pc.geometric_features
+                    for sim_pc in self.simulated
+                )
+            )
+            if not density_already_computed:
+                if backend == "jakteristics":
+                    compute_density_jakteristics(self.real_world, radius, max_knn)
+                    for sim_pc in self.simulated:
+                        compute_density_jakteristics(sim_pc, radius, max_knn)
+                elif backend == "pgeof":
+                    compute_density_pgeof(self.real_world, radius, max_knn)
+                    for sim_pc in self.simulated:
+                        compute_density_pgeof(sim_pc, radius, max_knn)
+                else:
+                    raise ValueError(f"Backend {backend} not supported.")
+
         if feature_names == []:
-            return  # all features already computed
+            return  # all requested features already computed
 
         # check if all feature names available for the backend, if not, try fallback on other backend before raising error
         if backend == "pgeof":
@@ -405,23 +376,6 @@ class PointCloudPair:
             compute_geom_feat_pgeof(self.real_world, pgeof_features, radius, max_knn)
             for sim_pc in self.simulated:
                 compute_geom_feat_pgeof(sim_pc, pgeof_features, radius, max_knn)
-
-    def compute_point_density_vapc(self, voxel_size: float, voxel_origin=None):
-        """
-        Compute voxel-based point density for all point clouds in the pair using VAPC.
-
-        :param voxel_size: Voxel edge length used for voxel-based feature computation.
-        :type voxel_size: float
-        :param voxel_origin: Optional voxel grid origin passed to the VAPC backend. If None, [0.0, 0.0, 0.0] is used.
-        :type voxel_origin: array-like, optional
-
-        :return: Tuple containing (voxel density for real world point cloud, list of voxel densities for simulated point clouds)
-        :rtype: tuple[float, list[float]]
-        """
-        # TODO: Should this function also return the vapc instance (cf. voxel features)?
-        compute_point_density_vapc(self.real_world, voxel_size, voxel_origin)
-        for sim_pc in self.simulated:
-            compute_point_density_vapc(sim_pc, voxel_size, voxel_origin)
 
     def compute_voxel_features(
         self,
@@ -700,18 +654,6 @@ def write_las(
         data = getattr(pc, field)
         if data is not None:
             las[field] = data
-    # some attributes first require attribute name handling by adding a suffix (e.g., search radius)
-    # point density and normals
-    if pc.point_density is not None:
-        pdens_name = f"point_density_r{pc.point_density_radius}"
-        add_dimension_to_laz(las, pc.point_density, pdens_name)
-    if pc.normals is not None:
-        normal_x_name = f"normal_x_r{pc.normal_radius}"
-        normal_y_name = f"normal_y_r{pc.normal_radius}"
-        normal_z_name = f"normal_z_r{pc.normal_radius}"
-        add_dimension_to_laz(las, pc.normals[:, 0], normal_x_name)
-        add_dimension_to_laz(las, pc.normals[:, 1], normal_y_name)
-        add_dimension_to_laz(las, pc.normals[:, 2], normal_z_name)
     # geometric features (here the feature name already includes the radius suffix)
     for feat_name, feat_data in pc.geometric_features.items():
         add_dimension_to_laz(las, feat_data, feat_name)
@@ -758,7 +700,7 @@ def get_attribute_data(pc: PointCloud, attribute: str):
     # search for attribute in all possible locations
     if hasattr(pc, attribute):
         data = getattr(pc, attribute)
-    elif attribute in ["x", "y", "z"]:  # similarly for normals?
+    elif attribute in ["x", "y", "z"]:
         coord_index = {"x": 0, "y": 1, "z": 2}[attribute]
         data = pc.coords[:, coord_index]
     elif any(attribute in key for key in pc.geometric_features.keys()):

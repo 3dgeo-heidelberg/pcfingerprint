@@ -12,9 +12,11 @@ pc_pair.load_simulated(list(data_folder.glob("plot_10_simulated_test.laz")))
 print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
 
 pdens_start_time = time.time()
-# compute point density and geometric features
-pc_pair.compute_point_density(radius=0.2, backend="jakteristics")
-print(f"Point density computed in {time.time() - pdens_start_time:.2f} seconds.")
+# compute density and geometric features
+pc_pair.compute_geometric_features(
+    feature_names=["density"], radius=0.2, backend="jakteristics"
+)
+print(f"Density computed in {time.time() - pdens_start_time:.2f} seconds.")
 
 geom_start_time = time.time()
 pc_pair.compute_geometric_features(
@@ -23,17 +25,17 @@ pc_pair.compute_geometric_features(
 print(f"Geometric features computed in {time.time() - geom_start_time:.2f} seconds.")
 
 assert (
-    pc_pair.real_world.point_density is not None
-), "Point density not computed for real world point cloud."
+    "density_r0.2" in pc_pair.real_world.geometric_features
+), "Density not computed for real world point cloud."
 assert (
-    pc_pair.simulated[0].point_density is not None
-), "Point density not computed for simulated point cloud."
+    "density_r0.2" in pc_pair.simulated[0].geometric_features
+), "Density not computed for simulated point cloud."
 
 report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
     output_folder=report_folder,
-    attribute_list=["z", "point_density", "linearity"],
+    attribute_list=["z", "density_r0.2", "linearity_r0.2"],
     summary_statistics=True,
     return_number_metrics=True,
     visualizations=[
@@ -50,7 +52,7 @@ report_folder_class1 = Path("output_report_tls_virtual_forest_class1")
 # generate report only for one class
 pc_pair_filtered.generate_report(
     output_folder=report_folder_class1,
-    attribute_list=["z", "point_density", "linearity"],
+    attribute_list=["z", "density_r0.2", "linearity_r0.2"],
     summary_statistics=True,
     return_number_metrics=True,
     visualizations=[

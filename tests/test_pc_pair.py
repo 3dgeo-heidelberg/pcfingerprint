@@ -55,6 +55,16 @@ def test_geometric_features_single(pc_pair_uls_voxels):
     assert "linearity_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
 
 
+def test_geometric_features_density(pc_pair_uls_voxels):
+    pc_pair_uls_voxels.compute_geometric_features(
+        feature_names=["density"], radius=1.0, backend="jakteristics"
+    )
+
+    assert "density_r1.0" in pc_pair_uls_voxels.real_world.geometric_features
+    density = pc_pair_uls_voxels.real_world.geometric_features["density_r1.0"]
+    assert density.ndim == 1
+
+
 def test_voxel_features_single(pc_pair_uls_voxels):
     """Test computing a single voxel feature."""
     vapc_real, vapc_sims = pc_pair_uls_voxels.compute_voxel_features(
