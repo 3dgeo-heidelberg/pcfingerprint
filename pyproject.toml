@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy",
+    "numba",
     "jakteristics",
     "laspy[lazrs]",
     "matplotlib",
