@@ -6,7 +6,7 @@ start_time = time.time()
 # load data
 data_folder = Path("data/forest")
 report_folder = Path("output_report_tls_virtual_forest")
-class_mapping = {0: "grass", 1: "ground", 2: "trunk"}
+class_mapping = {0: "grass", 1: "ground", 2: "trunk", 3: "canopy"}
 pc_pair = pcfingerprint.PointCloudPair(
     standardize_intensity=False, shift_z=True, class_mapping=class_mapping
 )
@@ -27,21 +27,24 @@ pc_pair.compute_geometric_features(
 )
 print(f"Geometric features computed in {time.time() - geom_start_time:.2f} seconds.")
 
-assert (
-    "density_r0.2" in pc_pair.real_world.geometric_features
-), "Density not computed for real world point cloud."
-assert (
-    "density_r0.2" in pc_pair.simulated[0].geometric_features
-), "Density not computed for simulated point cloud."
+voxel_start_time = time.time()
+pc_pair.compute_voxel_features(feature_names=["linearity"], voxel_size=0.2)
+print(f"Voxel features computed in {time.time() - voxel_start_time:.2f} seconds.")
 
 report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
     output_folder=report_folder,
-    attribute_list=["z", "density_r0.2", "linearity_r0.2", "classification"],
+    attribute_list=[
+        "z",
+        "density_r0.2",
+        "linearity_r0.2",
+        "linearity_v0.2",
+        "classification",
+    ],
     summary_statistics=True,
     class_distribution=True,
-    return_number_metrics=True,
+    return_number_metrics=False,
     visualizations=[
         "histogram_overlay",
         "3d_scatter",

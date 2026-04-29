@@ -7,35 +7,23 @@ start_time = time.time()
 # load data
 data_folder = Path("data/forest")
 report_folder = Path("output_report_tls_virtual_forest_voxel")
-pc_pair = pcfingerprint.PointCloudPair(standardize_intensity=False, shift_z=True)
+class_mapping = {0: "grass", 1: "ground", 2: "trunk", 3: "canopy", 4: "deadwood"}
+pc_pair = pcfingerprint.PointCloudPair(
+    standardize_intensity=False, shift_z=True, class_mapping=class_mapping
+)
 pc_pair.load_real_world(data_folder / "plot_09_original_1.laz")
 pc_pair.load_simulated(list(data_folder.glob("plot_09_simulated_1.laz")))
 print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
 
 # compute voxel features
-voxel_size = 0.5
-geom_start_time = time.time()
+voxel_size = 1.0
+voxel_start_time = time.time()
 vapc_real, vapc_sim = pc_pair.compute_voxel_features(
-    voxel_size=0.5,
+    voxel_size=voxel_size,
     voxel_origin=[0, 0, 0],
     feature_names=["density", "linearity", "sum_of_eigenvalues"],
 )
-print(f"Voxel features computed in {time.time() - geom_start_time:.2f} seconds.")
-
-print(pc_pair.real_world.voxel_features.keys())
-
-assert (
-    pc_pair.real_world.voxel_features[f"density_v{voxel_size}"] is not None
-), "Voxel density not computed for real world point cloud."
-assert (
-    pc_pair.simulated[0].voxel_features[f"density_v{voxel_size}"] is not None
-), "Voxel density not computed for simulated point cloud."
-assert any(
-    "linearity_v" in key for key in pc_pair.real_world.voxel_features
-), "Voxel linearity not computed for real world point cloud."
-assert any(
-    "linearity_v" in key for key in pc_pair.simulated[0].voxel_features
-), "Voxel linearity not computed for simulated point cloud."
+print(f"Voxel features computed in {time.time() - voxel_start_time:.2f} seconds.")
 
 report_start_time = time.time()
 # generate project report
