@@ -217,6 +217,9 @@ def plot_histogram(
         for sim_pc in sim_pcs
     ]
 
+    if attribute == "classification":
+        bins = np.unique(real_pc.classification).size + 1
+
     if overlay:  # overlay histograms with transparency
         fig, ax = plt.subplots(figsize=(8, 6))
         n_colours = len(sim_pcs) + 1

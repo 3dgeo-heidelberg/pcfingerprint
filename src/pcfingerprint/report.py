@@ -535,7 +535,7 @@ def generate_report(
                     f"Visualization backend {vis_backend} not supported for histogram plot."
                 )
 
-        if "histogram_per_class" in visualizations:
+        if "histogram_per_class" in visualizations and attribute != "classification":
             # generate histogram plot
             if vis_backend == "matplotlib":
                 # if using matplotlib, we generate a static PNG image file and reference it from the HTML report

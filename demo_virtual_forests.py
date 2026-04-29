@@ -6,7 +6,7 @@ start_time = time.time()
 # load data
 data_folder = Path("data/forest")
 report_folder = Path("output_report_tls_virtual_forest")
-class_mapping = {0: "low vegetation", 1: "ground", 2: "trunk"}
+class_mapping = {0: "grass", 1: "ground", 2: "trunk"}
 pc_pair = pcfingerprint.PointCloudPair(
     standardize_intensity=False, shift_z=True, class_mapping=class_mapping
 )

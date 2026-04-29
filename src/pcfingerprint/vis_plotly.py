@@ -239,6 +239,9 @@ def plot_histogram(
     else:
         ylabel = "Frequency"
 
+    if attribute == "classification":
+        bins = np.unique(real_pc.classification).size + 1
+
     # get attribute data
     real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
     sim_data = [
@@ -260,14 +263,14 @@ def plot_histogram(
                 x=real_data,
                 histnorm="probability density" if normalize else None,
                 name="Real World Point Cloud",
-                marker_color="blue",
+                marker_color=colors[0],
                 nbinsx=bins,
-                opacity=0.7,
+                opacity=0.8,
             )
         )
         # simulated
         for i, data in enumerate(sim_data):
-            color = colors[i]
+            color = colors[i + 1]
             fig.add_trace(
                 go.Histogram(
                     x=data,
@@ -275,7 +278,7 @@ def plot_histogram(
                     name=f"Simulated Point Cloud {i+1}",
                     nbinsx=bins,
                     marker_color=color,
-                    opacity=0.3,
+                    opacity=0.2,
                 )
             )
         fig.update_layout(barmode="overlay", xaxis_title=attribute, yaxis_title=ylabel)
