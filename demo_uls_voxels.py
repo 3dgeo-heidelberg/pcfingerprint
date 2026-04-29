@@ -39,6 +39,23 @@ pc_pair.generate_report(
 )
 print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
 
+report_folder = Path("output_report_uls_tree_voxels_matplotlib")
+report_start_time = time.time()
+# generate project report
+pc_pair.generate_report(
+    output_folder=report_folder,
+    attribute_list=["z", "density_r0.5", "linearity_r1.0", "intensity"],
+    summary_statistics=True,
+    return_number_metrics=True,
+    visualizations=[
+        "histogram_overlay",
+        "3d_scatter",
+    ],  # "histogram" will instead plot histograms side by side
+    vis_backend="matplotlib",
+    preview=False,
+)
+print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
+
 # write point clouds to disk
 pc_outfolder = Path("output_pcs/")
 pc_pair.write_point_clouds(pc_outfolder)

@@ -364,7 +364,7 @@ def generate_report(
     # Add info for the header and title page
     report.add_header_info(
         header="Point Cloud Fingerprint",
-        title="Point Cloud Fingerprint Report",
+        title="Report",
         sub_title=f"Comparison between {real_pc.source} and {len(sim_pcs)} simulated point clouds",
         sub_sub_title=f'Attributes: {", ".join(attribute_list)}',
     )
@@ -461,7 +461,11 @@ def generate_report(
         tab_content_hists_per_class = {}
 
         if summary_statistics and not (
-            class_distribution and attribute == "classification"
+            (class_distribution and attribute == "classification")
+            or (
+                return_number_metrics
+                and attribute in ["return_number", "number_of_returns"]
+            )
         ):
             # compute summary statistics
             stats_real = stats.compute_statistics(real_data)
