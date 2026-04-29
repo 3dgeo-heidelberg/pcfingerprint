@@ -35,10 +35,10 @@ def compute_point_density_jakteristics(
         point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] = (
             feats.reshape(-1)
         )
-    point_cloud.point_density = point_cloud.geometric_features[
-        f"number_of_neighbors_r{radius}"
-    ] / (4 / 3 * np.pi * radius**3)
-    point_cloud.point_density_radius = radius
+    point_cloud.geometric_features[f"density_r{radius}"] = (
+        point_cloud.geometric_features[f"number_of_neighbors_r{radius}"]
+        / (4 / 3 * np.pi * radius**3)
+    )
 
 
 def compute_point_density_pgeof(
@@ -71,10 +71,10 @@ def compute_point_density_pgeof(
         # number of neighbors is the number of valid indices returned for each point - invalid indices have value -1
         num_neigh = (indices != -1).sum(axis=1)
         point_cloud.geometric_features[f"number_of_neighbors_r{radius}"] = num_neigh
-    point_cloud.point_density = point_cloud.geometric_features[
-        f"number_of_neighbors_r{radius}"
-    ] / (4 / 3 * np.pi * radius**3)
-    point_cloud.point_density_radius = radius
+    point_cloud.geometric_features[f"density_r{radius}"] = (
+        point_cloud.geometric_features[f"number_of_neighbors_r{radius}"]
+        / (4 / 3 * np.pi * radius**3)
+    )
 
 
 def compute_geom_feat_jakteristics(
