@@ -5,6 +5,9 @@ Module for generating comparison reports between point clouds.
 from typing import Optional, List
 from pathlib import Path
 from functools import partial
+import base64
+import sys
+from importlib.resources import files
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -58,6 +61,36 @@ def serve_report_folder(output_folder: str, open_browser: bool = True):
             httpd.serve_forever()
         except KeyboardInterrupt:
             print("\nServer stopped.")
+
+
+def inline_report_header_logo(report_file: Path) -> None:
+    """Replace the header logo reference with a self-contained data URI."""
+
+    # Try development path first (most reliable for active development)
+    logo_path = Path(__file__).resolve().parents[2] / "pcfingerprint_logo.png"
+
+    # If not found in development location, try installed package location
+    if not logo_path.exists():
+        try:
+            logo_resource = files("pcfingerprint").parent / "pcfingerprint_logo.png"
+            logo_path = Path(str(logo_resource))
+        except (TypeError, AttributeError, ModuleNotFoundError):
+            pass
+
+    if not report_file.exists() or not logo_path.exists():
+        return
+
+    old_logo_reference = 'const logoUrl = "../pcfingerprint_logo.png";'
+    report_content = report_file.read_text(encoding="utf-8")
+    if old_logo_reference not in report_content:
+        return
+
+    logo_base64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+    logo_data_uri = f"data:image/png;base64,{logo_base64}"
+    report_content = report_content.replace(
+        old_logo_reference, f'const logoUrl = "{logo_data_uri}";'
+    )
+    report_file.write_text(report_content, encoding="utf-8")
 
 
 class MatplotlibFigure(Figure):
@@ -708,6 +741,7 @@ def generate_report(
 
     # Save the report - creates the html output file
     report.save()
+    inline_report_header_logo(report.target_folder / filename)
 
     if preview:
         serve_report_folder(output_folder=output_folder, open_browser=True)

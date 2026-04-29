@@ -5,8 +5,10 @@
   <meta charset="UTF-8" />
   <script>
     function templateHeaderImage() {
-      document.getElementById('header-logo').src = "https://drupal-varnish-703-urz-webkit-webkit56-prd.apps.ocp-west.urz.uni-heidelberg.de/sites/default/files/2025-03/3Dgeo_heidelberg_white_bg.png";
-      document.getElementById('header-fixed-logo').src = "https://drupal-varnish-703-urz-webkit-webkit56-prd.apps.ocp-west.urz.uni-heidelberg.de/sites/default/files/2025-03/3Dgeo_heidelberg_white_bg.png";
+      const logoUrl = "../pcfingerprint_logo.png";
+      const fixedLogoUrl = "https://drupal-varnish-703-urz-webkit-webkit56-prd.apps.ocp-west.urz.uni-heidelberg.de/sites/default/files/2025-03/3Dgeo_heidelberg_white_bg.png";
+      document.getElementById('header-logo').src = logoUrl;
+      document.getElementById('header-fixed-logo').src = fixedLogoUrl;
       window.scrollTo(0, 0);
     };
   </script>
