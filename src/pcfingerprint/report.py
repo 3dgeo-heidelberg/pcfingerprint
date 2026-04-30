@@ -19,6 +19,8 @@ import webbrowser
 import http.server
 import socketserver
 
+IMG_FOLDER = "images"
+
 
 def wrap_div(html, class_=None):
     """Wrap HTML content in a ``div`` element.
@@ -100,7 +102,7 @@ class MatplotlibFigure(Figure):
 
     def __init__(
         self,
-        image_name: Path = None,
+        image_path: Path | str = None,
         caption: str = "",
         notes: Optional[list[str]] = None,
     ):
@@ -114,7 +116,7 @@ class MatplotlibFigure(Figure):
         :type notes: list[str] | None
         """
         super(MatplotlibFigure, self).__init__(caption, notes)
-        self.image_name = image_name
+        self.image_path = image_path
 
     def _as_html_figure_content(self, report: ReportInterface):
         """Render the matplotlib figure as HTML content.
@@ -127,7 +129,7 @@ class MatplotlibFigure(Figure):
 
         html = f"""
                 <div style='display: inline-flex;'>
-                    <img src="{self.image_name.name}" alt=Figure {report.figure_number} style="max-width: 100%"/>
+                    <img src="{self.image_path}" alt=Figure {report.figure_number} style="max-width: 100%"/>
                 </div>
                 """
         return html
@@ -138,21 +140,21 @@ class IFrameFigure(Figure):
 
     def __init__(
         self,
-        html_name: Path = None,
+        html_path: Path | str = None,
         caption: str = "",
         notes: Optional[list[str]] = None,
     ):
         """Initialize an iframe-backed report figure.
 
-        :param html_name: Path to the HTML file rendered in the iframe.
-        :type html_name: pathlib.Path | None
+        :param html_path: Path to the HTML file rendered in the iframe.
+        :type html_path: pathlib.Path | None
         :param caption: Caption text for the figure.
         :type caption: str
         :param notes: Optional notes to include with the caption.
         :type notes: list[str] | None
         """
         super(IFrameFigure, self).__init__(caption, notes)
-        self.html_name = html_name
+        self.html_path = html_path
 
     def _as_html_figure_content(self, report: ReportInterface):
         """Render the iframe figure as HTML content.
@@ -164,7 +166,7 @@ class IFrameFigure(Figure):
         """
         html = f"""
                 <div style='display: inline-flex; width: 100%;'>
-                    <iframe data-src="{self.html_name.name}" src="about:blank" title="Figure {report.figure_number}" width="100%" height="600px" style="border:none;"></iframe>
+                    <iframe data-src="{self.html_path}" src="about:blank" title="Figure {report.figure_number}" width="100%" height="600px" style="border:none;"></iframe>
                 </div>
                 """
         return html
@@ -234,14 +236,14 @@ class FigureSelection(Figure):
             if self.render_mode == "image":
                 images_html += f"""
                 <img id="{element_id}_img_{i}"
-                    src="{figure_path.name}"
+                    src="{figure_path}"
                     alt="{self.figure_labels[i]}"
                     style="max-width: 100%; display: {display_style};" />
                 """
             else:
                 images_html += f"""
                 <iframe id="{element_id}_img_{i}"
-                    data-src="{figure_path.name}"
+                    data-src="{figure_path}"
                     src="about:blank"
                     width="100%"
                     height="600px"
@@ -361,6 +363,7 @@ def generate_report(
         filename=filename,
         template="src/pcfingerprint/templates/report_template_fingerprint.html",
     )
+    (report.target_folder / IMG_FOLDER).mkdir(parents=True, exist_ok=True)
 
     # Add info for the header and title page
     report.add_header_info(
@@ -413,11 +416,15 @@ def generate_report(
             for attribute in plot_attribute_list:
                 fig = plot_3d_scatter(reference_pc, compare_pcs, attribute=attribute)
                 # save the figure to a file in the report folder and add it to the report
-                img_file = report.target_folder / Path(f"3d_scatter_{attribute}.png")
+                img_file = (
+                    report.target_folder
+                    / IMG_FOLDER
+                    / Path(f"3d_scatter_{attribute}.png")
+                )
                 fig.savefig(img_file, format="png")
                 plt.close(fig)
                 tab_content_scatter[attribute] = MatplotlibFigure(
-                    image_name=img_file,
+                    image_path=img_file.relative_to(report.target_folder),
                     caption=f"3D scatter plot colored by {attribute}",
                 )
         elif vis_backend == "plotly":
@@ -428,10 +435,14 @@ def generate_report(
 
             for attribute in plot_attribute_list:
                 fig = plot_3d_scatter(reference_pc, compare_pcs, attribute=attribute)
-                fig_file = report.target_folder / Path(f"3d_scatter_{attribute}.html")
+                fig_file = (
+                    report.target_folder
+                    / IMG_FOLDER
+                    / Path(f"3d_scatter_{attribute}.html")
+                )
                 write_html_with_linked_3d_camera(fig, fig_file)
                 tab_content_scatter[attribute] = IFrameFigure(
-                    html_name=fig_file,
+                    html_path=fig_file.relative_to(report.target_folder),
                     caption=f"3D scatter plot colored by {attribute}",
                 )
         else:
@@ -541,14 +552,18 @@ def generate_report(
                         overlay=overlay,
                         normalize=norm,
                     )
-                    img_file = report.target_folder / Path(
-                        f"{attribute}_histogram_{norm_str}.png"
+                    img_file = (
+                        report.target_folder
+                        / IMG_FOLDER
+                        / f"{attribute}_histogram_{norm_str}.png"
                     )
                     fig.savefig(img_file, format="png")
                     plt.close(fig)
                     imgs.append((norm_str, img_file))
                 image_labels = [label for label, _ in imgs]
-                image_names = [path for _, path in imgs]
+                image_names = [
+                    path.relative_to(report.target_folder) for _, path in imgs
+                ]
                 figure_selection = FigureSelection(
                     figure_paths=image_names,
                     figure_labels=image_labels,
@@ -567,13 +582,17 @@ def generate_report(
                         overlay=overlay,
                         normalize=norm,
                     )
-                    fig_file = report.target_folder / Path(
-                        f"{attribute}_histogram_{norm_str}.html"
+                    fig_file = (
+                        report.target_folder
+                        / IMG_FOLDER
+                        / Path(f"{attribute}_histogram_{norm_str}.html")
                     )
                     fig.write_html(fig_file, config={"responsive": True})
                     figs.append((norm_str, fig_file))
                 figure_selection = FigureSelection(
-                    figure_paths=[path for _, path in figs],
+                    figure_paths=[
+                        path.relative_to(report.target_folder) for _, path in figs
+                    ],
                     figure_labels=[label for label, _ in figs],
                     render_mode="iframe",
                     caption=f"Histogram of {attribute}",
@@ -597,15 +616,21 @@ def generate_report(
                         reference_pc, compare_pcs, attribute, normalize=norm
                     )
                     for fig, class_val in zip(figs, classes):
-                        img_file = report.target_folder / Path(
-                            f"{attribute}_histogram_class{class_val}_{norm_str}.png"
+                        img_file = (
+                            report.target_folder
+                            / IMG_FOLDER
+                            / Path(
+                                f"{attribute}_histogram_class{class_val}_{norm_str}.png"
+                            )
                         )
                         fig.savefig(img_file, format="png")
                         plt.close(fig)
                         imgs.append((f"class_{class_val}_{norm_str}", img_file))
                 if len(imgs) > 0:
                     image_labels = [label for label, _ in imgs]
-                    image_names = [path for _, path in imgs]
+                    image_names = [
+                        path.relative_to(report.target_folder) for _, path in imgs
+                    ]
                     figure_selection = FigureSelection(
                         figure_paths=image_names,
                         figure_labels=image_labels,
@@ -626,11 +651,15 @@ def generate_report(
                             class_label = class_mapping[class_val]
                         else:
                             class_label = str(class_val)
-                        fig_file = report.target_folder / Path(
-                            f"{attribute}_histogram_class{class_label}_{norm_str}.html"
+                        fig_file = (
+                            report.target_folder
+                            / IMG_FOLDER
+                            / Path(
+                                f"{attribute}_histogram_class{class_label}_{norm_str}.html"
+                            )
                         )
                         fig.write_html(fig_file, config={"responsive": True})
-                        figure_paths.append(fig_file)
+                        figure_paths.append(fig_file.relative_to(report.target_folder))
                         figure_labels.append(f"class_{class_label}_{norm_str}")
                 if len(figure_paths) > 0:
                     figure_selection = FigureSelection(
