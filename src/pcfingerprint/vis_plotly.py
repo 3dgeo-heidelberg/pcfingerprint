@@ -105,9 +105,9 @@ def plot_grid(num_plots):
     ncols = 2 if num_plots <= 4 else 3
     nrows = math.ceil(num_plots / ncols)
     subplot_titles = [""] * (nrows * ncols)
-    subplot_titles[0] = "Real World Point Cloud"
+    subplot_titles[0] = "Reference Point Cloud"
     for i in range(num_plots - 1):
-        subplot_titles[i + 1] = f"Simulated Point Cloud {i + 1}"
+        subplot_titles[i + 1] = f"Comparison Point Cloud {i + 1}"
 
     fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=subplot_titles)
 
@@ -121,9 +121,9 @@ def plot_grid_3d(num_plots):
     ncols = 2 if num_plots <= 4 else 3
     nrows = math.ceil(num_plots / ncols)
     subplot_titles = [""] * (nrows * ncols)
-    subplot_titles[0] = "Real World Point Cloud"
+    subplot_titles[0] = "Reference Point Cloud"
     for i in range(num_plots - 1):
-        subplot_titles[i + 1] = f"Simulated Point Cloud {i + 1}"
+        subplot_titles[i + 1] = f"Comparison Point Cloud {i + 1}"
 
     fig = make_subplots(
         rows=nrows,
@@ -215,19 +215,20 @@ def _classification_color_mapping(values_list):
 
 
 def plot_3d_scatter(
-    real_pc, sim_pcs: list, attribute: str = None, max_n_points: int = 50_000
+    reference_pc, compare_pcs: list, attribute: str = None, max_n_points: int = 50_000
 ):
     # only do subsampling if attributes is not voxel-based
-    if attribute not in real_pc.voxel_features:
+    if attribute not in reference_pc.voxel_features:
         # subsample points if necessary
-        real_pc, subsample_indices = subsample_points(real_pc, max_n_points)
-        sim_pc_sub = [
-            subsample_points(sim_pc, max_n_points) for i, sim_pc in enumerate(sim_pcs)
+        reference_pc, _ = subsample_points(reference_pc, max_n_points)
+        compare_pc_sub = [
+            subsample_points(compare_pc, max_n_points)
+            for i, compare_pc in enumerate(compare_pcs)
         ]
-        sim_pcs, sim_subsample_indices = zip(*sim_pc_sub)
+        compare_pcs, _ = zip(*compare_pc_sub)
 
-        real_pc_pl = real_pc.coords
-        sim_pc_pl = [sim_pc.coords for sim_pc in sim_pcs]
+        reference_pc_pl = reference_pc.coords
+        compare_pc_pl = [compare_pc.coords for compare_pc in compare_pcs]
 
         if attribute is None:
             print(
@@ -238,25 +239,33 @@ def plot_3d_scatter(
     else:
         # voxel-based: use centroid points for plotting but attribute values remain
         # stored in voxel_features
-        real_pc_pl = real_pc.voxel_features[attribute][1]  # closest_to_centroids
-        sim_pc_pl = [sim_pc.voxel_features[attribute][1] for sim_pc in sim_pcs]
+        reference_pc_pl = reference_pc.voxel_features[attribute][
+            1
+        ]  # closest_to_centroids
+        compare_pc_pl = [
+            compare_pc.voxel_features[attribute][1] for compare_pc in compare_pcs
+        ]
 
     # get attribute data
-    real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
-    sim_data = [
-        pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute)
-        for sim_pc in sim_pcs
+    reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
+        reference_pc, attribute
+    )
+    compare_data = [
+        pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
+        for compare_pc in compare_pcs
     ]
 
     # determine plot grid based on inputs
-    fig, nrows, ncols = plot_grid_3d(len(sim_pcs) + 1)
+    fig, nrows, ncols = plot_grid_3d(len(compare_pcs) + 1)
 
     # compute global vmin/vmax for a consistent color scale across subplots
     if attribute == "classification":
-        class_values, colorscale = _classification_color_mapping([real_data, *sim_data])
-        real_data = np.searchsorted(class_values, np.asarray(real_data))
-        sim_data = [
-            np.searchsorted(class_values, np.asarray(data)) for data in sim_data
+        class_values, colorscale = _classification_color_mapping(
+            [reference_data, *compare_data]
+        )
+        reference_data = np.searchsorted(class_values, np.asarray(reference_data))
+        compare_data = [
+            np.searchsorted(class_values, np.asarray(data)) for data in compare_data
         ]
         vmin = 0
         vmax = max(len(class_values) - 1, 0)
@@ -268,9 +277,9 @@ def plot_3d_scatter(
         )
     else:
         try:
-            vmin = float(np.min(real_data))
-            vmax = float(np.max(real_data))
-            for data in sim_data:
+            vmin = float(np.min(reference_data))
+            vmax = float(np.max(reference_data))
+            for data in compare_data:
                 vmin = min(vmin, float(np.min(data)))
                 vmax = max(vmax, float(np.max(data)))
         except Exception:
@@ -279,48 +288,48 @@ def plot_3d_scatter(
         colorscale = "Viridis"
         colorbar = dict(title=attribute)
 
-    # real world
+    # reference world
     fig.add_trace(
         go.Scatter3d(
-            x=real_pc_pl[:, 0],
-            y=real_pc_pl[:, 1],
-            z=real_pc_pl[:, 2],
+            x=reference_pc_pl[:, 0],
+            y=reference_pc_pl[:, 1],
+            z=reference_pc_pl[:, 2],
             mode="markers",
             marker=dict(
                 size=2,
-                color=real_data,
+                color=reference_data,
                 colorscale=colorscale,
                 cmin=vmin,
                 cmax=vmax,
                 opacity=0.8,
                 colorbar=colorbar,
             ),
-            name="Real World Point Cloud",
+            name="Reference Point Cloud",
         ),
         row=1,
         col=1,
     )
 
-    # simulated
-    for i, sim_pc in enumerate(sim_pcs):
+    # comparison
+    for i, compare_pc in enumerate(compare_pcs):
         subplot_index = i + 1
         row = subplot_index // ncols + 1
         col = subplot_index % ncols + 1
         fig.add_trace(
             go.Scatter3d(
-                x=sim_pc_pl[i][:, 0],
-                y=sim_pc_pl[i][:, 1],
-                z=sim_pc_pl[i][:, 2],
+                x=compare_pc_pl[i][:, 0],
+                y=compare_pc_pl[i][:, 1],
+                z=compare_pc_pl[i][:, 2],
                 mode="markers",
                 marker=dict(
                     size=2,
-                    color=sim_data[i],
+                    color=compare_data[i],
                     colorscale=colorscale,
                     cmin=vmin,
                     cmax=vmax,
                     opacity=0.8,
                 ),
-                name=f"Simulated Point Cloud {i + 1}",
+                name=f"Comparison Point Cloud {i + 1}",
             ),
             row=row,
             col=col,
@@ -332,18 +341,18 @@ def plot_3d_scatter(
 
 
 def plot_histogram(
-    real_pc,
-    sim_pcs: list,
+    reference_pc,
+    compare_pcs: list,
     attribute: str,
     bins: int = 100,
     overlay: bool = False,
     normalize: bool = False,
 ):
     """
-    Plot histograms of an attribute for real and simulated point clouds side by side.
+    Plot histograms of an attribute for reference and comparison point clouds side by side.
 
-    :param real_pc: PointCloud object representing the real-world point cloud
-    :param sim_pcs: List of PointCloud objects representing the simulated point clouds
+    :param reference_pc: PointCloud object representing the reference point cloud
+    :param compare_pcs: List of PointCloud objects representing the comparison point clouds
     :param attribute: Name of the attribute to plot
     :type attribute: str
     :param bins: Number of bins for the histogram
@@ -358,42 +367,44 @@ def plot_histogram(
         ylabel = "Frequency"
 
     if attribute == "classification":
-        bins = np.unique(real_pc.classification).size + 1
+        bins = np.unique(reference_pc.classification).size + 1
 
     # get attribute data
-    real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
-    sim_data = [
-        pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute)
-        for sim_pc in sim_pcs
+    reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
+        reference_pc, attribute
+    )
+    compare_data = [
+        pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
+        for compare_pc in compare_pcs
     ]
-    bin_edges = _histogram_bin_edges([real_data, *sim_data], bins)
+    bin_edges = _histogram_bin_edges([reference_data, *compare_data], bins)
 
     if overlay:  # overlay histograms with transparency
         fig = go.Figure()
-        n_colours = len(sim_pcs) + 1
+        n_colours = len(compare_pcs) + 1
         colors = (
             px.colors.qualitative.Plotly
             if n_colours <= len(px.colors.qualitative.Plotly)
             else px.colors.qualitative.Dark24
         )
-        # real world
+        # reference
         fig.add_trace(
             _histogram_bar_trace(
-                real_data,
+                reference_data,
                 bin_edges,
-                name="Real World Point Cloud",
+                name="Reference Point Cloud",
                 marker_color=colors[0],
                 opacity=0.8,
             )
         )
-        # simulated
-        for i, data in enumerate(sim_data):
+        # comparison
+        for i, data in enumerate(compare_data):
             color = colors[i + 1]
             fig.add_trace(
                 _histogram_bar_trace(
                     data,
                     bin_edges,
-                    name=f"Simulated Point Cloud {i+1}",
+                    name=f"Comparison Point Cloud {i+1}",
                     marker_color=color,
                     opacity=0.2,
                 )
@@ -403,22 +414,22 @@ def plot_histogram(
         return fig
     else:  # plot histograms side by side
         # determine plot grid based on inputs
-        total_plots = len(sim_pcs) + 1
+        total_plots = len(compare_pcs) + 1
         fig, nrows, ncols = plot_grid(total_plots)
 
         # get max frequency to scale y-axis equally
         histnorm = "probability density" if normalize else None
         max_freq = 0
-        for data in [real_data, *sim_data]:
+        for data in [reference_data, *compare_data]:
             counts, _ = np.histogram(data, bins=bin_edges)
             max_freq = max(max_freq, float(np.max(counts)) if counts.size else 0)
 
-        # ax 0 is always real pc
+        # ax 0 is always reference pc
         fig.add_trace(
             _histogram_bar_trace(
-                real_data,
+                reference_data,
                 bin_edges,
-                name="Real World Point Cloud",
+                name="Reference Point Cloud",
                 marker_color="blue",
                 opacity=0.7,
                 histnorm=histnorm,
@@ -431,7 +442,7 @@ def plot_histogram(
         fig.update_yaxes(title_text=ylabel, row=1, col=1)
         if not normalize:
             fig.update_yaxes(range=[0, max_freq * 1.1], row=1, col=1)
-        for i, data in enumerate(sim_data):
+        for i, data in enumerate(compare_data):
             subplot_index = i + 1
             row = subplot_index // ncols + 1
             col = subplot_index % ncols + 1
@@ -439,7 +450,7 @@ def plot_histogram(
                 _histogram_bar_trace(
                     data,
                     bin_edges,
-                    name=f"Simulated Point Cloud {i + 1}",
+                    name=f"Comparison Point Cloud {i + 1}",
                     marker_color=px.colors.qualitative.Plotly[
                         i % len(px.colors.qualitative.Plotly)
                     ],
@@ -468,15 +479,19 @@ def plot_histogram(
 
 
 def plot_histogram_per_class(
-    real_pc, sim_pcs: list, attribute: str, bins: int = 100, normalize: bool = False
+    reference_pc,
+    compare_pcs: list,
+    attribute: str,
+    bins: int = 100,
+    normalize: bool = False,
 ):
     """
-    Plot histograms of an attribute for real and simulated point clouds side by side, separated by class.
-    If a class is present in the real point cloud but not in any of the simulated point clouds, or vice versa,
+    Plot histograms of an attribute for reference and comparison point clouds side by side, separated by class.
+    If a class is present in the reference point cloud but not in any of the comparison point clouds, or vice versa,
     there will be one empty histogram.
 
-    :param real_pc: PointCloud object representing the real-world point cloud
-    :param sim_pcs: List of PointCloud objects representing the simulated point clouds
+    :param reference_pc: PointCloud object representing the reference point cloud
+    :param compare_pcs: List of PointCloud objects representing the comparison point clouds
     :param attribute: Name of the attribute to plot
     :type attribute: str
     :param bins: Number of bins for the histogram
@@ -485,26 +500,29 @@ def plot_histogram_per_class(
     :type normalize: bool
     """
 
-    _validate_classes(real_pc)
-    for sim_pc in sim_pcs:
-        _validate_classes(sim_pc)
+    _validate_classes(reference_pc)
+    for compare_pc in compare_pcs:
+        _validate_classes(compare_pc)
 
-    classes = np.unique(real_pc.classification)
+    classes = np.unique(reference_pc.classification)
 
     figs = []
-    for sim_pc in sim_pcs:
-        sim_classes = np.unique(sim_pc.classification)
-        classes = np.union1d(classes, sim_classes)
+    for compare_pc in compare_pcs:
+        compare_classes = np.unique(compare_pc.classification)
+        classes = np.union1d(classes, compare_classes)
     for class_value in classes:
-        class_filter_real = real_pc.classification == class_value
-        class_filters_sim = [sim_pc.classification == class_value for sim_pc in sim_pcs]
-        hist_real_world_class = real_pc.mask(class_filter_real)
-        hist_simulated_class = [
-            sim_pc.mask(class_filters_sim[i]) for i, sim_pc in enumerate(sim_pcs)
+        class_filter_reference = reference_pc.classification == class_value
+        class_filters_compare = [
+            compare_pc.classification == class_value for compare_pc in compare_pcs
+        ]
+        hist_reference_class = reference_pc.mask(class_filter_reference)
+        hist_compare_class = [
+            compare_pc.mask(class_filters_compare[i])
+            for i, compare_pc in enumerate(compare_pcs)
         ]
         fig = plot_histogram(
-            hist_real_world_class,
-            hist_simulated_class,
+            hist_reference_class,
+            hist_compare_class,
             attribute=attribute,
             bins=bins,
             overlay=True,

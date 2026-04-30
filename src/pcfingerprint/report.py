@@ -313,8 +313,8 @@ class FigureSelection(Figure):
 
 
 def generate_report(
-    real_pc,
-    sim_pcs: list,
+    reference_pc,
+    compare_pcs: list,
     output_folder: str,
     attribute_list: list[str],
     summary_statistics: bool = True,
@@ -325,11 +325,12 @@ def generate_report(
     vis_backend: str = "matplotlib",
     preview: bool = True,
 ):
-    """Generate an HTML report comparing real and simulated point clouds.
+    """Generate an HTML report comparing reference and comparison point clouds.
 
-    :param real_pc: Reference point cloud object.
-    :param sim_pcs: Simulated point cloud objects to compare against ``real_pc``.
-    :type sim_pcs: list
+    :param reference_pc: Reference point cloud object.
+    :type reference_pc: PointCloud
+    :param compare_pcs: Comparison point cloud objects to compare against ``reference_pc``.
+    :type compare_pcs: list
     :param output_folder: Output folder for the generated HTML report.
     :type output_folder: str
     :param attribute_list: Point attributes to analyze and visualize.
@@ -365,7 +366,7 @@ def generate_report(
     report.add_header_info(
         header="Point Cloud Fingerprint",
         title="Report",
-        sub_title=f"Comparison between {real_pc.source} and {len(sim_pcs)} simulated point clouds",
+        sub_title=f"Comparison between {reference_pc.source} and {len(compare_pcs)} comparison point clouds",
         sub_sub_title=f'Attributes: {", ".join(attribute_list)}',
     )
 
@@ -376,15 +377,17 @@ def generate_report(
 
     # create a pandas dataframe from this
     df = pd.DataFrame(columns=["Dataset", "Filename"])
-    df["Dataset"] = ["Real"] + [f"Simulated {i+1}" for i in range(len(sim_pcs))]
+    df["Dataset"] = ["Reference"] + [
+        f"Comparison {i+1}" for i in range(len(compare_pcs))
+    ]
     filenames = []
     try:
-        filenames.append(Path(real_pc.source).as_posix())
+        filenames.append(Path(reference_pc.source).as_posix())
     except TypeError:
         filenames.append(None)
-    for sim_pc in sim_pcs:
+    for compare_pc in compare_pcs:
         try:
-            filenames.append(Path(sim_pc.source).as_posix())
+            filenames.append(Path(compare_pc.source).as_posix())
         except TypeError:
             filenames.append(None)
     df["Filename"] = filenames
@@ -408,7 +411,7 @@ def generate_report(
             from pcfingerprint.vis_matplotlib import plot_3d_scatter
 
             for attribute in plot_attribute_list:
-                fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
+                fig = plot_3d_scatter(reference_pc, compare_pcs, attribute=attribute)
                 # save the figure to a file in the report folder and add it to the report
                 img_file = report.target_folder / Path(f"3d_scatter_{attribute}.png")
                 fig.savefig(img_file, format="png")
@@ -424,7 +427,7 @@ def generate_report(
             )
 
             for attribute in plot_attribute_list:
-                fig = plot_3d_scatter(real_pc, sim_pcs, attribute=attribute)
+                fig = plot_3d_scatter(reference_pc, compare_pcs, attribute=attribute)
                 fig_file = report.target_folder / Path(f"3d_scatter_{attribute}.html")
                 write_html_with_linked_3d_camera(fig, fig_file)
                 tab_content_scatter[attribute] = IFrameFigure(
@@ -449,11 +452,13 @@ def generate_report(
     attr_tab_hists_per_class = Tabs()
     for attribute in attribute_list:
         # extract data for attribute
-        real_data = pcfingerprint.pcfingerprint.get_attribute_data(real_pc, attribute)
-        sim_data = []
-        for sim_pc in sim_pcs:
-            sim_data.append(
-                pcfingerprint.pcfingerprint.get_attribute_data(sim_pc, attribute)
+        reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
+            reference_pc, attribute
+        )
+        compare_data = []
+        for compare_pc in compare_pcs:
+            compare_data.append(
+                pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
             )
 
         tab_content_tables = {}
@@ -468,40 +473,40 @@ def generate_report(
             )
         ):
             # compute summary statistics
-            stats_real = stats.compute_statistics(real_data)
-            stats_sim = [stats.compute_statistics(data) for data in sim_data]
+            stats_reference = stats.compute_statistics(reference_data)
+            stats_compare = [stats.compute_statistics(data) for data in compare_data]
 
-            # remove stats where all values are NaN across real and simulated (e.g. mode if not int)
+            # remove stats where all values are NaN across reference and comparison (e.g. mode if not int)
             keys_to_remove = []
-            for k in stats_real.keys():
+            for k in stats_reference.keys():
                 try:
-                    if np.isnan(stats_real[k]) and all(
-                        [np.isnan(s_stats[k]) for s_stats in stats_sim]
+                    if np.isnan(stats_reference[k]) and all(
+                        [np.isnan(s_stats[k]) for s_stats in stats_compare]
                     ):
                         keys_to_remove.append(k)
                 except TypeError:
-                    if pd.isnull(stats_real[k]) and all(
-                        [pd.isnull(s_stats[k]) for s_stats in stats_sim]
+                    if pd.isnull(stats_reference[k]) and all(
+                        [pd.isnull(s_stats[k]) for s_stats in stats_compare]
                     ):
                         keys_to_remove.append(k)
             for k in keys_to_remove:
-                del stats_real[k]
-                for s_stats in stats_sim:
+                del stats_reference[k]
+                for s_stats in stats_compare:
                     del s_stats[k]
 
             # create a pandas dataframe from this
-            keys = stats_real.keys()
+            keys = stats_reference.keys()
             df = pd.DataFrame(
                 {
                     "Statistics": keys,
-                    f"Real": [stats_real[k] for k in keys],
+                    f"Reference": [stats_reference[k] for k in keys],
                 }
             )
-            df["Real"] = df["Real"].astype(object)
-            # add a column for each simulated pc
-            for i, s_stats in enumerate(stats_sim):
-                df[f"Simulated {i+1}"] = [s_stats[k] for k in keys]
-                df[f"Simulated {i+1}"] = df[f"Simulated {i+1}"].astype(object)
+            df["Reference"] = df["Reference"].astype(object)
+            # add a column for each comparison pc
+            for i, s_stats in enumerate(stats_compare):
+                df[f"Comparison {i+1}"] = [s_stats[k] for k in keys]
+                df[f"Comparison {i+1}"] = df[f"Comparison {i+1}"].astype(object)
 
             # row formatting
             for k in keys:
@@ -530,7 +535,11 @@ def generate_report(
                 imgs = []
                 for norm, norm_str in ((False, "frequency"), (True, "density")):
                     fig = plot_histogram(
-                        real_pc, sim_pcs, attribute, overlay=overlay, normalize=norm
+                        reference_pc,
+                        compare_pcs,
+                        attribute,
+                        overlay=overlay,
+                        normalize=norm,
                     )
                     img_file = report.target_folder / Path(
                         f"{attribute}_histogram_{norm_str}.png"
@@ -552,7 +561,11 @@ def generate_report(
                 figs = []
                 for norm, norm_str in ((False, "frequency"), (True, "density")):
                     fig = plot_histogram(
-                        real_pc, sim_pcs, attribute, overlay=overlay, normalize=norm
+                        reference_pc,
+                        compare_pcs,
+                        attribute,
+                        overlay=overlay,
+                        normalize=norm,
                     )
                     fig_file = report.target_folder / Path(
                         f"{attribute}_histogram_{norm_str}.html"
@@ -581,7 +594,7 @@ def generate_report(
                 imgs = []
                 for norm, norm_str in ((False, "frequency"), (True, "density")):
                     figs, classes = plot_histogram_per_class(
-                        real_pc, sim_pcs, attribute, normalize=norm
+                        reference_pc, compare_pcs, attribute, normalize=norm
                     )
                     for fig, class_val in zip(figs, classes):
                         img_file = report.target_folder / Path(
@@ -606,7 +619,7 @@ def generate_report(
                 figure_labels = []
                 for norm, norm_str in ((False, "frequency"), (True, "density")):
                     figs, classes = plot_histogram_per_class(
-                        real_pc, sim_pcs, attribute, normalize=norm
+                        reference_pc, compare_pcs, attribute, normalize=norm
                     )
                     for fig, class_val in zip(figs, classes):
                         if class_mapping is not None and class_val in class_mapping:
@@ -657,29 +670,29 @@ def generate_report(
         section = Section(section_title=f"Class Distribution Metrics")
 
         # compute class distribution metrics
-        metrics_real = stats.compute_class_distribution_metrics(
-            real_pc.classification, class_mapping=class_mapping
+        metrics_reference = stats.compute_class_distribution_metrics(
+            reference_pc.classification, class_mapping=class_mapping
         )
-        metrics_sim = [
+        metrics_compare = [
             stats.compute_class_distribution_metrics(
-                sim_pc.classification, class_mapping=class_mapping
+                compare_pc.classification, class_mapping=class_mapping
             )
-            for sim_pc in sim_pcs
+            for compare_pc in compare_pcs
         ]
 
         # create a pandas dataframe from this
-        keys = metrics_real.keys()
+        keys = metrics_reference.keys()
         df = pd.DataFrame(
             {
                 "Metrics": keys,
-                f"Real": [metrics_real[k] for k in keys],
+                f"Reference": [metrics_reference[k] for k in keys],
             }
         )
-        df["Real"] = df["Real"].astype(object)
-        # add a column for each simulated pc
-        for i, s_metrics in enumerate(metrics_sim):
-            df[f"Simulated {i+1}"] = [s_metrics[k] for k in keys]
-            df[f"Simulated {i+1}"] = df[f"Simulated {i+1}"].astype(object)
+        df["Reference"] = df["Reference"].astype(object)
+        # add a column for each comparison pc
+        for i, s_metrics in enumerate(metrics_compare):
+            df[f"Comparison {i+1}"] = [s_metrics[k] for k in keys]
+            df[f"Comparison {i+1}"] = df[f"Comparison {i+1}"].astype(object)
         # row formatting
         for k in keys:
             if "fraction" in k:
@@ -701,29 +714,29 @@ def generate_report(
         section = Section(section_title=f"Return Number Metrics")
 
         # compute return number statistics
-        metrics_real = stats.compute_return_number_metrics(
-            real_pc.return_number, real_pc.number_of_returns
+        metrics_reference = stats.compute_return_number_metrics(
+            reference_pc.return_number, reference_pc.number_of_returns
         )
-        metrics_sim = [
+        metrics_compare = [
             stats.compute_return_number_metrics(
-                sim_pc.return_number, sim_pc.number_of_returns
+                compare_pc.return_number, compare_pc.number_of_returns
             )
-            for sim_pc in sim_pcs
+            for compare_pc in compare_pcs
         ]
 
         # create a pandas dataframe from this
-        keys = metrics_real.keys()
+        keys = metrics_reference.keys()
         df = pd.DataFrame(
             {
                 "Statistics": keys,
-                f"Real": [metrics_real[k] for k in keys],
+                f"Reference": [metrics_reference[k] for k in keys],
             }
         )
-        df["Real"] = df["Real"].astype(object)
-        # add a column for each simulated pc
-        for i, s_metrics in enumerate(metrics_sim):
-            df[f"Simulated {i+1}"] = [s_metrics[k] for k in keys]
-            df[f"Simulated {i+1}"] = df[f"Simulated {i+1}"].astype(object)
+        df["Reference"] = df["Reference"].astype(object)
+        # add a column for each comparison pc
+        for i, s_metrics in enumerate(metrics_compare):
+            df[f"Comparison {i+1}"] = [s_metrics[k] for k in keys]
+            df[f"Comparison {i+1}"] = df[f"Comparison {i+1}"].astype(object)
         # row formatting
         for k in keys:
             if "fraction" in k:

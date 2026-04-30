@@ -184,10 +184,9 @@ class PointCloudPair:
         robust_scale_intensity: bool = False,
         class_mapping: dict[int, str] | None = None,
     ):
-        self.real_world = PointCloud()
-        # simulated is a list of PointClouds (minimum 1)
-        self.simulated = []
-        self.trajectory = None  # Optional trajectory data
+        self.reference = PointCloud()
+        # compare is a list of PointClouds (minimum 1)
+        self.compare = []
         self.shift_z = shift_z
         self.shift_gps_time = shift_gps_time
         self.standardize_intensity = standardize_intensity
@@ -198,7 +197,7 @@ class PointCloudPair:
         """
         Drop attributes that are not present in all point clouds in the pair to ensure comparability.
         """
-        all_pcs = [self.real_world] + self.simulated
+        all_pcs = [self.reference] + self.compare
         for attr in [
             "gps_time",
             "return_number",
@@ -209,42 +208,42 @@ class PointCloudPair:
                 for pc in all_pcs:
                     setattr(pc, attr, None)
 
-    def load_real_world(self, filepath: str):
+    def load_reference(self, filepath: str):
         """
-        Load the real world point cloud from a file. Supported formats are LAS/LAZ and XYZ.
+        Load the reference point cloud from a file. Supported formats are LAS/LAZ and XYZ.
 
         :param filepath: File path to load. Supported formats are LAS/LAZ and XYZ.
         :type filepath: str
         """
         # read based on file extension
         if Path(filepath).suffix in [".las", ".laz"]:
-            self.real_world = read_las_file(filepath)
+            self.reference = read_las_file(filepath)
         elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
-            self.real_world = read_xyz_file(filepath)
+            self.reference = read_xyz_file(filepath)
         else:
             raise ValueError(
                 f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
             )
-        self.real_world.source = Path(filepath)
+        self.reference.source = Path(filepath)
         if self.shift_z:
-            self.real_world.shift_z_to_zero()
+            self.reference.shift_z_to_zero()
         if self.shift_gps_time:
-            self.real_world.shift_gpstime_to_zero()
+            self.reference.shift_gpstime_to_zero()
         if self.robust_scale_intensity and self.standardize_intensity:
             raise ValueError(
                 "Cannot apply both robust scaling and standardization to intensity."
             )
         if self.robust_scale_intensity:
-            self.real_world.robust_scale_intensity()
+            self.reference.robust_scale_intensity()
         if self.standardize_intensity:
-            self.real_world.standardize_intensity()
-        # if simulated point cloud is already loaded, drop non-overlapping attributes
-        if self.simulated != []:
+            self.reference.standardize_intensity()
+        # if comparison point cloud is already loaded, drop non-overlapping attributes
+        if self.compare != []:
             self.drop_attributes()
 
-    def load_simulated(self, filepaths: list[str] | str):
+    def load_compare(self, filepaths: list[str] | str):
         """
-        Load simulated point cloud(s) from file(s).
+        Load comparison point cloud(s) from file(s).
         Users can provide both a single file path (str) and list of file paths (list[str]).
 
         :param filepaths: File path(s) to load. Can be a single file path (str) or a list of file paths (list[str]). Supported formats are LAS/LAZ and XYZ.
@@ -254,32 +253,32 @@ class PointCloudPair:
             filepaths = [filepaths]
         for filepath in filepaths:
             if Path(filepath).suffix in [".las", ".laz"]:
-                self.simulated.append(read_las_file(filepath))
+                self.compare.append(read_las_file(filepath))
             elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
-                self.simulated.append(read_xyz_file(filepath))
+                self.compare.append(read_xyz_file(filepath))
             else:
                 raise ValueError(
                     f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
                 )
-            self.simulated[-1].source = Path(filepath)
+            self.compare[-1].source = Path(filepath)
         if self.shift_z:
-            for pc in self.simulated:
+            for pc in self.compare:
                 pc.shift_z_to_zero()
         if self.shift_gps_time:
-            for pc in self.simulated:
+            for pc in self.compare:
                 pc.shift_gpstime_to_zero()
         if self.robust_scale_intensity and self.standardize_intensity:
             raise ValueError(
                 "Cannot apply both robust scaling and standardization to intensity."
             )
         if self.standardize_intensity:
-            for pc in self.simulated:
+            for pc in self.compare:
                 pc.standardize_intensity()
         if self.robust_scale_intensity:
-            for pc in self.simulated:
+            for pc in self.compare:
                 pc.robust_scale_intensity()
-        # if real world point cloud is already loaded, drop non-overlapping attributes
-        if self.real_world.coords is not None:
+        # if reference world point cloud is already loaded, drop non-overlapping attributes
+        if self.reference.coords is not None:
             self.drop_attributes()
 
     def compute_geometric_features(
@@ -302,9 +301,9 @@ class PointCloudPair:
         :type backend: str
         """
         # raise error if no point clouds loaded
-        if self.real_world.coords is None or self.simulated == []:
+        if self.reference.coords is None or self.compare == []:
             raise ValueError(
-                "Please load both real world and simulated point clouds before computing geometric features."
+                "Please load both reference and compare point clouds before computing geometric features."
             )
         # Compute geometric features for all point clouds
         radius = np.round(radius, 3)
@@ -315,13 +314,13 @@ class PointCloudPair:
 
         if density_requested:
             if backend == "jakteristics":
-                compute_density_jakteristics(self.real_world, radius, max_knn)
-                for sim_pc in self.simulated:
-                    compute_density_jakteristics(sim_pc, radius, max_knn)
+                compute_density_jakteristics(self.reference, radius, max_knn)
+                for compare_pc in self.compare:
+                    compute_density_jakteristics(compare_pc, radius, max_knn)
             elif backend == "pgeof":
-                compute_density_pgeof(self.real_world, radius, max_knn)
-                for sim_pc in self.simulated:
-                    compute_density_pgeof(sim_pc, radius, max_knn)
+                compute_density_pgeof(self.reference, radius, max_knn)
+                for compare_pc in self.compare:
+                    compute_density_pgeof(compare_pc, radius, max_knn)
             else:
                 raise ValueError(f"Backend {backend} not supported.")
 
@@ -364,16 +363,16 @@ class PointCloudPair:
 
         if len(jakteristics_features) > 0:
             compute_geom_feat_jakteristics(
-                self.real_world, jakteristics_features, radius, max_knn
+                self.reference, jakteristics_features, radius, max_knn
             )
-            for sim_pc in self.simulated:
+            for compare_pc in self.compare:
                 compute_geom_feat_jakteristics(
-                    sim_pc, jakteristics_features, radius, max_knn
+                    compare_pc, jakteristics_features, radius, max_knn
                 )
         if len(pgeof_features) > 0:
-            compute_geom_feat_pgeof(self.real_world, pgeof_features, radius, max_knn)
-            for sim_pc in self.simulated:
-                compute_geom_feat_pgeof(sim_pc, pgeof_features, radius, max_knn)
+            compute_geom_feat_pgeof(self.reference, pgeof_features, radius, max_knn)
+            for compare_pc in self.compare:
+                compute_geom_feat_pgeof(compare_pc, pgeof_features, radius, max_knn)
 
     def compute_voxel_features(
         self,
@@ -392,25 +391,25 @@ class PointCloudPair:
         "linearity", "planarity", "sphericity", "sum_of_eigenvalues","omnivariance", "eigenentropy", "anisotropy", "surface_variation". If empty, all available features will be computed.
         :type feature_names: list[str] | None
 
-        :return: Tuple containing (VAPC for real world point cloud, list of VAPCs for simulated point clouds)
+        :return: Tuple containing (VAPC for reference point cloud, list of VAPCs for compare point clouds)
         :rtype: tuple[py4dgeo.Vapc, list[py4dgeo.Vapc]]
         """
         # raise error if no point clouds loaded
-        if self.real_world.coords is None or self.simulated == []:
+        if self.reference.coords is None or self.compare == []:
             raise ValueError(
-                "Please load both real world and simulated point clouds before computing voxel features."
+                "Please load both reference and compare point clouds before computing voxel features."
             )
         if feature_names is None:
             feature_names = []
         vapc_list = []
-        for pc in [self.real_world] + self.simulated:
+        for pc in [self.reference] + self.compare:
             vapc = compute_geom_feat_vapc(pc, voxel_size, voxel_origin, feature_names)
             vapc_list.append(vapc)
 
         return (
             vapc_list[0],
             vapc_list[1:],
-        )  # return real world VAPC and list of simulated VAPCs
+        )  # return reference VAPC and list of compare VAPCs
 
     def filter_by_class(self, classes: list[int]):
         """
@@ -423,12 +422,12 @@ class PointCloudPair:
         :rtype: PointCloudPair
         """
         # raise error if no point clouds loaded
-        if self.real_world.coords is None or self.simulated == []:
+        if self.reference.coords is None or self.compare == []:
             raise ValueError(
-                "Please load both real world and simulated point clouds before filtering by class."
+                "Please load both reference and compare point clouds before filtering by class."
             )
-        if self.real_world.classification is None or any(
-            sim_pc.classification is None for sim_pc in self.simulated
+        if self.reference.classification is None or any(
+            compare_pc.classification is None for compare_pc in self.compare
         ):
             raise ValueError(
                 "Cannot filter by class if one of the point clouds does not have 'classification' attribute."
@@ -439,9 +438,9 @@ class PointCloudPair:
             standardize_intensity=self.standardize_intensity,
             robust_scale_intensity=self.robust_scale_intensity,
         )
-        new_pair.real_world = self.real_world.filter_by_class(classes)
-        new_pair.simulated = [
-            sim_pc.filter_by_class(classes) for sim_pc in self.simulated
+        new_pair.reference = self.reference.filter_by_class(classes)
+        new_pair.compare = [
+            compare_pc.filter_by_class(classes) for compare_pc in self.compare
         ]
 
         return new_pair
@@ -458,21 +457,21 @@ class PointCloudPair:
         preview: bool = True,
     ):
         # raise error if no point clouds loaded
-        if self.real_world.coords is None or self.simulated == []:
+        if self.reference.coords is None or self.compare == []:
             raise ValueError(
-                "Please load both real world and simulated point clouds before generating report."
+                "Please load both reference and compare point clouds before generating report."
             )
         # generate html report with histograms for each attribute in attribute_list
-        if len(self.simulated) > 5:
+        if len(self.compare) > 5:
             warnings.warn(
-                "More than 5 simulated point clouds provided. Report will only consider the first five."
+                "More than 5 comparison point clouds provided. Report will only consider the first five."
             )
-            simulated = self.simulated[:5]
+            compare = self.compare[:5]
         else:
-            simulated = self.simulated
+            compare = self.compare
         generate_report(
-            self.real_world,
-            simulated,
+            self.reference,
+            compare,
             output_folder,
             attribute_list,
             summary_statistics=summary_statistics,
@@ -485,16 +484,16 @@ class PointCloudPair:
         )
 
     def write_point_clouds(self, output_folder: str):
-        # write real world and simulated point clouds (with new attributes) to output folder
+        # write reference and compare point clouds (with new attributes) to output folder
         output_folder = Path(output_folder)
         output_folder.mkdir(parents=True, exist_ok=True)
-        # write real world
-        real_outpath = output_folder / Path(self.real_world.source).name
-        write_las(self.real_world, real_outpath)
-        # write simulated
-        for sim_pc in self.simulated:
-            sim_outpath = output_folder / Path(sim_pc.source).name
-            write_las(sim_pc, sim_outpath)
+        # write reference
+        reference_outpath = output_folder / Path(self.reference.source).name
+        write_las(self.reference, reference_outpath)
+        # write compare
+        for compare_pc in self.compare:
+            compare_outpath = output_folder / Path(compare_pc.source).name
+            write_las(compare_pc, compare_outpath)
 
 
 def write_voxelized_point_clouds(

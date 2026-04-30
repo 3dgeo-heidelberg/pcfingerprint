@@ -10,8 +10,8 @@ class_mapping = {0: "grass", 1: "ground", 2: "trunk", 3: "canopy"}
 pc_pair = pcfingerprint.PointCloudPair(
     standardize_intensity=False, shift_z=True, class_mapping=class_mapping
 )
-pc_pair.load_real_world(data_folder / "plot_10_original_test.laz")
-pc_pair.load_simulated(list(data_folder.glob("plot_10_simulated_test.laz")))
+pc_pair.load_reference(data_folder / "plot_10_original_test.laz")
+pc_pair.load_compare(list(data_folder.glob("plot_10_simulated_test.laz")))
 print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
 
 pdens_start_time = time.time()
