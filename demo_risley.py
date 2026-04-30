@@ -5,8 +5,8 @@ from pathlib import Path
 data_folder = Path("data/livox_avia")
 report_folder = Path("output_report_livox_avia")
 pc_pair = pcfingerprint.PointCloudPair(shift_gps_time=True)
-pc_pair.load_real_world(data_folder / "avia_office_wall_real-world.csv")
-pc_pair.load_simulated(list(data_folder.glob("avia*.las")))
+pc_pair.load_reference(data_folder / "avia_office_wall_real-world.csv")
+pc_pair.load_compare(list(data_folder.glob("avia*.las")))
 
 # generate project report
 pc_pair.generate_report(

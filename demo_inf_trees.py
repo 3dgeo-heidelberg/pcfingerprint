@@ -7,8 +7,8 @@ start_time = time.time()
 data_folder = Path("data/inf_trees")
 report_folder = Path("output_report_inf_trees")
 pc_pair = pcfingerprint.PointCloudPair(standardize_intensity=True, shift_z=False)
-pc_pair.load_real_world(data_folder / "INF_trees_VZ600i_260317_merged_local.laz")
-pc_pair.load_simulated(
+pc_pair.load_reference(data_folder / "INF_trees_VZ600i_260317_merged_local.laz")
+pc_pair.load_compare(
     list(data_folder.glob("output_tree1_mesh_0.10ns*_merged_trees.laz"))
 )
 print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
