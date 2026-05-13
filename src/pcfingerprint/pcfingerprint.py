@@ -492,7 +492,9 @@ class PointCloudPair:
             else:
                 # Find all features that contain this attribute name
                 partial_matches = [
-                    f for f in available_features if attr_lower in f.lower()
+                    f
+                    for f in available_features
+                    if attr_lower == f.lower().rsplit("_", 1)[0]
                 ]
                 if partial_matches:
                     # Sort to ensure consistent ordering (e.g., linearity_r0.1, linearity_r0.2)
