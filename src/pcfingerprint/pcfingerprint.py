@@ -445,11 +445,12 @@ class PointCloudPair:
 
         return new_pair
 
-    def _expand_attribute_names(self, attribute_list: list[str]) -> list[str]:
+    def _expand_attribute_names(self, compare, attribute_list: list[str]) -> list[str]:
         """
         Expand attribute names to match available features. For each attribute in the list:
         - If an exact match exists in geometric_features or standard attributes, keep it as-is
-        - If no exact match, find all features that contain the attribute name as a prefix/substring
+        - If no exact match exists, expand to features whose base name matches exactly, where the
+           base name is the part of the feature name before the final underscore
 
         Example: "linearity" expands to ["linearity_r0.1", "linearity_r0.2", etc.] if those exist.
 
@@ -459,7 +460,7 @@ class PointCloudPair:
         :rtype: list[str]
         """
         # Collect all available features from reference and all comparison point clouds
-        all_pcs = [self.reference] + self.compare
+        all_pcs = [self.reference] + compare
         available_features = set()
 
         # Standard attributes that are always available if not None
@@ -534,8 +535,6 @@ class PointCloudPair:
             raise ValueError(
                 "Please load both reference and compare point clouds before generating report."
             )
-        # Expand attribute names to match all available features for partial names
-        expanded_attribute_list = self._expand_attribute_names(attribute_list)
 
         # generate html report with histograms for each attribute in attribute_list
         if len(self.compare) > 5:
@@ -545,6 +544,10 @@ class PointCloudPair:
             compare = self.compare[:5]
         else:
             compare = self.compare
+
+        # Expand attribute names to match all available features for partial names
+        expanded_attribute_list = self._expand_attribute_names(compare, attribute_list)
+
         generate_report(
             self.reference,
             compare,

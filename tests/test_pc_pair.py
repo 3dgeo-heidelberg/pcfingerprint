@@ -220,24 +220,32 @@ def test_filter_by_class_missing_classification(pc_pair_uls_voxels):
 
 
 def test_expand_exact_coordinate(pc_pair_with_features):
-    expanded = pc_pair_with_features._expand_attribute_names(["x"])
+    expanded = pc_pair_with_features._expand_attribute_names(
+        pc_pair_with_features.compare, ["x"]
+    )
     assert expanded == ["x"]
 
 
 def test_expand_exact_feature(pc_pair_with_features):
-    expanded = pc_pair_with_features._expand_attribute_names(["linearity_r0.1"])
+    expanded = pc_pair_with_features._expand_attribute_names(
+        pc_pair_with_features.compare, ["linearity_r0.1"]
+    )
     assert expanded == ["linearity_r0.1"]
 
 
 def test_expand_partial_geometric(pc_pair_with_features):
-    expanded = pc_pair_with_features._expand_attribute_names(["linearity"])
+    expanded = pc_pair_with_features._expand_attribute_names(
+        pc_pair_with_features.compare, ["linearity"]
+    )
     assert "linearity_r0.05" in expanded
     assert "linearity_r0.1" in expanded
     assert "linearity_r0.2" in expanded
 
 
 def test_expand_voxel_and_geometric(pc_pair_with_features):
-    expanded = pc_pair_with_features._expand_attribute_names(["density"])
+    expanded = pc_pair_with_features._expand_attribute_names(
+        pc_pair_with_features.compare, ["density"]
+    )
     assert "density_r0.5" in expanded
     assert "density_v0.5" in expanded
     assert "density_v1.0" in expanded
@@ -251,20 +259,27 @@ def test_exact_priority_no_false_positive(pc_pair_with_features):
     pc_pair_with_features.compare[0].geometric_features["x_variance_r0.1"] = (
         np.random.rand(100)
     )
-    expanded = pc_pair_with_features._expand_attribute_names(["x"])
+    expanded = pc_pair_with_features._expand_attribute_names(
+        pc_pair_with_features.compare, ["x"]
+    )
     assert expanded == ["x"]
 
 
 def test_case_insensitive(pc_pair_with_features):
-    expanded = pc_pair_with_features._expand_attribute_names(["LINEARITY"])
+    expanded = pc_pair_with_features._expand_attribute_names(
+        pc_pair_with_features.compare, ["LINEARITY"]
+    )
     assert "linearity_r0.05" in expanded
 
 
 def test_no_match_and_empty(pc_pair_with_features):
-    assert pc_pair_with_features._expand_attribute_names(["nonexistent"]) == [
-        "nonexistent"
-    ]
-    assert pc_pair_with_features._expand_attribute_names([]) == []
+    assert pc_pair_with_features._expand_attribute_names(
+        pc_pair_with_features.compare, ["nonexistent"]
+    ) == ["nonexistent"]
+    assert (
+        pc_pair_with_features._expand_attribute_names(pc_pair_with_features.compare, [])
+        == []
+    )
 
 
 def test_filter_by_class_missing_class(pc_pair_classes):
