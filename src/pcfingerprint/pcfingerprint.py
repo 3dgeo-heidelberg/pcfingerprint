@@ -445,6 +445,70 @@ class PointCloudPair:
 
         return new_pair
 
+    def _expand_attribute_names(self, attribute_list: list[str]) -> list[str]:
+        """
+        Expand attribute names to match available features. For each attribute in the list:
+        - If an exact match exists in geometric_features or standard attributes, keep it as-is
+        - If no exact match, find all features that contain the attribute name as a prefix/substring
+
+        Example: "linearity" expands to ["linearity_r0.1", "linearity_r0.2", etc.] if those exist.
+
+        :param attribute_list: List of attribute names to expand
+        :type attribute_list: list[str]
+        :return: Expanded list of attribute names
+        :rtype: list[str]
+        """
+        # Collect all available features from reference and all comparison point clouds
+        all_pcs = [self.reference] + self.compare
+        available_features = set()
+
+        # Standard attributes that are always available if not None
+        for pc in all_pcs:
+            for attr in [
+                "gps_time",
+                "return_number",
+                "number_of_returns",
+                "intensity",
+                "classification",
+            ]:
+                if getattr(pc, attr, None) is not None:
+                    available_features.add(attr)
+            # Add coordinate names
+            available_features.update(["x", "y", "z"])
+            # Add geometric features
+            available_features.update(pc.geometric_features.keys())
+            # Add voxel features
+            available_features.update(pc.voxel_features.keys())
+
+        expanded_attributes = []
+        for attr in attribute_list:
+            attr_lower = attr.lower()
+
+            # Check for exact match first
+            exact_matches = [f for f in available_features if f.lower() == attr_lower]
+            if exact_matches:
+                # Use the original case from available features
+                expanded_attributes.append(exact_matches[0])
+            else:
+                # Find all features that contain this attribute name
+                partial_matches = [
+                    f for f in available_features if attr_lower in f.lower()
+                ]
+                if partial_matches:
+                    # Sort to ensure consistent ordering (e.g., linearity_r0.1, linearity_r0.2)
+                    partial_matches_sorted = sorted(partial_matches)
+                    expanded_attributes.extend(partial_matches_sorted)
+                    if len(partial_matches_sorted) > 1:
+                        warnings.warn(
+                            f"Attribute '{attr}' matched multiple features: {partial_matches_sorted}",
+                            UserWarning,
+                        )
+                else:
+                    # No match found - add as-is and let get_attribute_data raise the error
+                    expanded_attributes.append(attr)
+
+        return expanded_attributes
+
     def generate_report(
         self,
         output_folder: str,
@@ -461,6 +525,9 @@ class PointCloudPair:
             raise ValueError(
                 "Please load both reference and compare point clouds before generating report."
             )
+        # Expand attribute names to match all available features for partial names
+        expanded_attribute_list = self._expand_attribute_names(attribute_list)
+
         # generate html report with histograms for each attribute in attribute_list
         if len(self.compare) > 5:
             warnings.warn(
@@ -473,7 +540,7 @@ class PointCloudPair:
             self.reference,
             compare,
             output_folder,
-            attribute_list,
+            expanded_attribute_list,
             summary_statistics=summary_statistics,
             return_number_metrics=return_number_metrics,
             class_distribution=class_distribution,

@@ -219,6 +219,57 @@ def test_filter_by_class_missing_classification(pc_pair_uls_voxels):
         pc_pair_uls_voxels.filter_by_class([1])
 
 
+# Minimal, focused tests for attribute name expansion
+
+
+def test_expand_exact_coordinate(pc_pair_with_features):
+    expanded = pc_pair_with_features._expand_attribute_names(["x"])
+    assert expanded == ["x"]
+
+
+def test_expand_exact_feature(pc_pair_with_features):
+    expanded = pc_pair_with_features._expand_attribute_names(["linearity_r0.1"])
+    assert expanded == ["linearity_r0.1"]
+
+
+def test_expand_partial_geometric(pc_pair_with_features):
+    expanded = pc_pair_with_features._expand_attribute_names(["linearity"])
+    assert "linearity_r0.05" in expanded
+    assert "linearity_r0.1" in expanded
+    assert "linearity_r0.2" in expanded
+
+
+def test_expand_voxel_and_geometric(pc_pair_with_features):
+    expanded = pc_pair_with_features._expand_attribute_names(["density"])
+    assert "density_r0.5" in expanded
+    assert "density_v0.5" in expanded
+    assert "density_v1.0" in expanded
+
+
+def test_exact_priority_no_false_positive(pc_pair_with_features):
+    # Add a feature that contains 'x' to test exact match priority
+    pc_pair_with_features.reference.geometric_features["x_variance_r0.1"] = (
+        np.random.rand(100)
+    )
+    pc_pair_with_features.compare[0].geometric_features["x_variance_r0.1"] = (
+        np.random.rand(100)
+    )
+    expanded = pc_pair_with_features._expand_attribute_names(["x"])
+    assert expanded == ["x"]
+
+
+def test_case_insensitive(pc_pair_with_features):
+    expanded = pc_pair_with_features._expand_attribute_names(["LINEARITY"])
+    assert "linearity_r0.05" in expanded
+
+
+def test_no_match_and_empty(pc_pair_with_features):
+    assert pc_pair_with_features._expand_attribute_names(["nonexistent"]) == [
+        "nonexistent"
+    ]
+    assert pc_pair_with_features._expand_attribute_names([]) == []
+
+
 def test_filter_by_class_missing_class(pc_pair_classes):
     # check if it raises a warning when no points are found for the specified class
     with pytest.warns(UserWarning):
