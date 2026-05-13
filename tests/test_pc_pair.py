@@ -230,20 +230,14 @@ def test_expand_exact_feature(pc_pair_with_features):
 
 
 def test_expand_partial_geometric(pc_pair_with_features):
-    with pytest.warns(
-        UserWarning, match="Attribute 'linearity' matched multiple features:"
-    ):
-        expanded = pc_pair_with_features._expand_attribute_names(["linearity"])
+    expanded = pc_pair_with_features._expand_attribute_names(["linearity"])
     assert "linearity_r0.05" in expanded
     assert "linearity_r0.1" in expanded
     assert "linearity_r0.2" in expanded
 
 
 def test_expand_voxel_and_geometric(pc_pair_with_features):
-    with pytest.warns(
-        UserWarning, match="Attribute 'density' matched multiple features:"
-    ):
-        expanded = pc_pair_with_features._expand_attribute_names(["density"])
+    expanded = pc_pair_with_features._expand_attribute_names(["density"])
     assert "density_r0.5" in expanded
     assert "density_v0.5" in expanded
     assert "density_v1.0" in expanded

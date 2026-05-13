@@ -481,12 +481,13 @@ class PointCloudPair:
             available_features.update(pc.voxel_features.keys())
 
         expanded_attributes = []
+        seen = set()
         for attr in attribute_list:
             attr_lower = attr.lower()
 
             # Check for exact match first
             exact_matches = [f for f in available_features if f.lower() == attr_lower]
-            seen = set()
+
             if exact_matches:
                 # Use the original case from available features
                 expanded_attributes.append(exact_matches[0])
