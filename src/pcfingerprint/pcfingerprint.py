@@ -486,6 +486,7 @@ class PointCloudPair:
 
             # Check for exact match first
             exact_matches = [f for f in available_features if f.lower() == attr_lower]
+            seen = set()
             if exact_matches:
                 # Use the original case from available features
                 expanded_attributes.append(exact_matches[0])
@@ -499,12 +500,17 @@ class PointCloudPair:
                 if partial_matches:
                     # Sort to ensure consistent ordering (e.g., linearity_r0.1, linearity_r0.2)
                     partial_matches_sorted = sorted(partial_matches)
-                    expanded_attributes.extend(partial_matches_sorted)
-                    if len(partial_matches_sorted) > 1:
-                        warnings.warn(
-                            f"Attribute '{attr}' matched multiple features: {partial_matches_sorted}",
-                            UserWarning,
-                        )
+                    for f in partial_matches_sorted:
+                        # Avoid duplicates in case multiple attributes match the same feature
+                        if f not in seen:
+                            expanded_attributes.append(f)
+                            seen.add(f)
+                    # TODO: turn below warning into info message when implementing logging
+                    # if len(partial_matches_sorted) > 1:
+                    #    warnings.warn(
+                    #        f"Attribute '{attr}' matched multiple features: {partial_matches_sorted}",
+                    #        UserWarning,
+                    #    )
                 else:
                     # No match found - add as-is and let get_attribute_data raise the error
                     expanded_attributes.append(attr)
