@@ -492,6 +492,7 @@ class PointCloudPair:
             if exact_matches:
                 # Use the original case from available features
                 expanded_attributes.append(exact_matches[0])
+                seen.add(exact_matches[0])
             else:
                 # Find all features that contain this attribute name
                 partial_matches = [
