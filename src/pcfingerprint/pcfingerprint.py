@@ -445,6 +445,45 @@ class PointCloudPair:
 
         return new_pair
 
+    def _collect_all_attributes(self, compare) -> list[str]:
+        """
+        Collect all available attributes from the reference and compare point clouds to use
+        for report generation. Returns a deterministic, deduplicated list of attribute names.
+
+        :param compare: list of comparison PointCloud objects
+        :type compare: list[PointCloud]
+        :return: Ordered list of attribute names available in the point clouds
+        :rtype: list[str]
+        """
+        attributes: list[str] = []
+
+        def add_unique(name: str):
+            if name not in attributes:
+                attributes.append(name)
+
+        # start with coordinates)
+        for coord in ("x", "y", "z"):
+            add_unique(coord)
+
+        standard_attributes = [
+            "gps_time",
+            "return_number",
+            "number_of_returns",
+            "intensity",
+            "classification",
+        ]
+        for pc in [self.reference] + compare:
+            for attr in standard_attributes:
+                if getattr(pc, attr, None) is not None:
+                    add_unique(attr)
+            # sort feature keys to ensure consistent ordering across runs
+            for attr in sorted(pc.geometric_features.keys()):
+                add_unique(attr)
+            for attr in sorted(pc.voxel_features.keys()):
+                add_unique(attr)
+
+        return attributes
+
     def _expand_attribute_names(self, compare, attribute_list: list[str]) -> list[str]:
         """
         Expand attribute names to match available features. For each attribute in the list:
@@ -460,26 +499,7 @@ class PointCloudPair:
         :rtype: list[str]
         """
         # Collect all available features from reference and all comparison point clouds
-        all_pcs = [self.reference] + compare
-        available_features = set()
-
-        # Standard attributes that are always available if not None
-        for pc in all_pcs:
-            for attr in [
-                "gps_time",
-                "return_number",
-                "number_of_returns",
-                "intensity",
-                "classification",
-            ]:
-                if getattr(pc, attr, None) is not None:
-                    available_features.add(attr)
-            # Add coordinate names
-            available_features.update(["x", "y", "z"])
-            # Add geometric features
-            available_features.update(pc.geometric_features.keys())
-            # Add voxel features
-            available_features.update(pc.voxel_features.keys())
+        available_features = self._collect_all_attributes(compare)
 
         expanded_attributes = []
         seen = set()
@@ -523,7 +543,7 @@ class PointCloudPair:
     def generate_report(
         self,
         output_folder: str,
-        attribute_list: list[str],
+        attribute_list: list[str] = None,
         summary_statistics: bool = True,
         class_distribution: bool = False,
         return_number_metrics: bool = False,
@@ -546,8 +566,16 @@ class PointCloudPair:
         else:
             compare = self.compare
 
-        # Expand attribute names to match all available features for partial names
-        expanded_attribute_list = self._expand_attribute_names(compare, attribute_list)
+        # if attribute list is None, use all attributes available in the point clouds (except for x and y coordinates)
+        if attribute_list is None:
+            expanded_attribute_list = self._collect_all_attributes(compare)
+            expanded_attribute_list.remove("x")
+            expanded_attribute_list.remove("y")
+        else:
+            # Expand attribute names to match all available features for partial names
+            expanded_attribute_list = self._expand_attribute_names(
+                compare, attribute_list
+            )
 
         generate_report(
             self.reference,
@@ -794,15 +822,19 @@ def get_attribute_data(pc: PointCloud, attribute: str):
 
     # search for attribute in all possible locations
     if hasattr(pc, attribute):
-        data = getattr(pc, attribute)
-    elif attribute in ["x", "y", "z"]:
-        coord_index = {"x": 0, "y": 1, "z": 2}[attribute]
-        data = pc.coords[:, coord_index]
-    elif any(attribute in key for key in pc.geometric_features.keys()):
-        data = pc.geometric_features[attribute]
-    elif any(attribute in key for key in pc.voxel_features.keys()):
-        data = pc.voxel_features[attribute][0]
-    else:
-        raise ValueError(f"Attribute {attribute} not found in point clouds.")
+        return getattr(pc, attribute)
 
-    return data
+    if attribute in ["x", "y", "z"]:
+        coord_index = {"x": 0, "y": 1, "z": 2}[attribute]
+        return pc.coords[:, coord_index]
+
+    # Exact-match lookup for geometric features
+    if attribute in pc.geometric_features:
+        return pc.geometric_features[attribute]
+
+    # Exact-match lookup for voxel features; return values array if tuple
+    if attribute in pc.voxel_features:
+        feat = pc.voxel_features[attribute]
+        return feat[0] if isinstance(feat, tuple) and len(feat) > 0 else feat
+
+    raise ValueError(f"Attribute {attribute} not found in point clouds.")
