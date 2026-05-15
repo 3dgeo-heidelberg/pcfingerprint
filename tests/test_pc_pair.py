@@ -219,6 +219,29 @@ def test_filter_by_class_missing_classification(pc_pair_uls_voxels):
         pc_pair_uls_voxels.filter_by_class([1])
 
 
+def test_collect_all_attributes(pc_pair_with_features):
+    attributes = pc_pair_with_features._collect_all_attributes(
+        pc_pair_with_features.compare
+    )
+    expected_attributes = [
+        "z",
+        "gps_time",
+        "intensity",
+        "classification",
+        "linearity_r0.05",
+        "linearity_r0.1",
+        "linearity_r0.2",
+        "planarity_r0.05",
+        "planarity_r0.2",
+        "density_r0.5",
+        "linearity_v0.5",
+        "density_v0.5",
+        "density_v1.0",
+    ]
+    for attr in expected_attributes:
+        assert attr in attributes
+
+
 def test_expand_exact_coordinate(pc_pair_with_features):
     expanded = pc_pair_with_features._expand_attribute_names(
         pc_pair_with_features.compare, ["x"]
