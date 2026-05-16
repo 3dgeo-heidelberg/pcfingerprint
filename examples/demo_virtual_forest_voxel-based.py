@@ -1,13 +1,17 @@
 import pcfingerprint
 from pathlib import Path
-import time
 from pcfingerprint.pcfingerprint import write_voxelized_point_clouds
 
-start_time = time.time()
-# load data
-data_folder = Path("data/forest")
-report_folder = Path("output_report_tls_virtual_forest_voxel")
+# define input and output paths
+script_path = Path(__file__).parent
+data_folder = script_path / "../data/forest"
+report_folder = script_path / "../output_report_tls_virtual_forest_voxel"
+pc_outfolder = script_path / "../output_pcs_forest_voxel/"
+
+# define class mapping for the point cloud classification labels
 class_mapping = {0: "grass", 1: "ground", 2: "trunk", 3: "canopy", 4: "deadwood"}
+
+# initialize PointCloudPair and load data
 pc_pair = pcfingerprint.PointCloudPair(
     standardize_intensity=False, shift_z=True, class_mapping=class_mapping
 )
@@ -16,14 +20,12 @@ pc_pair.load_compare(list(data_folder.glob("plot_09_simulated_1.laz")))
 
 # compute voxel features
 voxel_size = 0.5
-voxel_start_time = time.time()
 vapc_reference, vapc_compare = pc_pair.compute_voxel_features(
     voxel_size=voxel_size,
     voxel_origin=[0, 0, 0],
     feature_names=["density", "linearity", "sum_of_eigenvalues"],
 )
 
-report_start_time = time.time()
 # generate project report
 pc_pair.generate_report(
     output_folder=report_folder,
@@ -46,7 +48,6 @@ pc_pair.generate_report(
 )
 
 # write point clouds to disk
-pc_outfolder = Path("output_pcs_forest_voxel/")
 pc_outfolder.mkdir(exist_ok=True, parents=True)
 write_voxelized_point_clouds(
     vapc_reference,
