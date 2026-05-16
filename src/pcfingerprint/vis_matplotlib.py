@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import pcfingerprint
 from pcfingerprint.utils import subsample_points, _validate_classes
 import numpy as np
+import logging
+
+logger = logging.getLogger("pcfingerprint")
 
 plt.rcParams["axes.spines.right"] = False
 plt.rcParams["axes.spines.top"] = False
@@ -62,11 +65,11 @@ def plot_3d_scatter(
         compare_pc_pl = [compare_pc.coords for compare_pc in compare_pcs]
 
         if attribute is None:
-            print(
+            logger.info(
                 "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
             )
             attribute = "z"
-        print(f"Generating 3D scatter plot colored by {attribute}...")
+        logger.info(f"Generating 3D scatter plot colored by {attribute}...")
     else:
         reference_pc_pl = reference_pc.voxel_features[attribute][
             1
@@ -123,11 +126,11 @@ def plot_3d_scatter(
         plt.legend()
     else:
         if attribute is None:
-            print(
+            logger.info(
                 "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
             )
             attribute = "z"
-        print(f"Generating 3D scatter plot colored by {attribute}...")
+        logger.info(f"Generating 3D scatter plot colored by {attribute}...")
 
         # determine plot grid based on inputs
         if len(compare_pcs) == 1:

@@ -12,6 +12,10 @@ from jinja2 import Template
 import pcfingerprint
 from pcfingerprint.utils import subsample_points, _validate_classes
 
+import logging
+
+logger = logging.getLogger("pcfingerprint")
+
 
 def _linked_3d_camera_post_script() -> str:
     """Return JavaScript that syncs camera updates across all 3D scenes."""
@@ -231,11 +235,11 @@ def plot_3d_scatter(
         compare_pc_pl = [compare_pc.coords for compare_pc in compare_pcs]
 
         if attribute is None:
-            print(
+            logger.info(
                 "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
             )
             attribute = "z"
-        print(f"Generating 3D scatter plot colored by {attribute}...")
+        logger.info(f"Generating 3D scatter plot colored by {attribute}...")
     else:
         # voxel-based: use centroid points for plotting but attribute values remain
         # stored in voxel_features

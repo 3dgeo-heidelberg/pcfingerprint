@@ -1,4 +1,5 @@
 import warnings
+import logging
 import numpy as np
 import laspy
 from pcfingerprint.geometric_features import (
@@ -18,6 +19,9 @@ from pcfingerprint.utils import (
 from pathlib import Path
 from pgeof import EFeatureID
 import jakteristics
+from pcfingerprint.logger import logger_context
+
+logger = logging.getLogger("pcfingerprint")
 
 
 class PointCloud:
@@ -205,6 +209,9 @@ class PointCloudPair:
             "intensity",
         ]:
             if any(getattr(pc, attr) is None for pc in all_pcs):
+                logger.info(
+                    f"Dropping attribute '{attr}' as it is not present in all point clouds."
+                )
                 for pc in all_pcs:
                     setattr(pc, attr, None)
 
@@ -215,6 +222,7 @@ class PointCloudPair:
         :param filepath: File path to load. Supported formats are LAS/LAZ and XYZ.
         :type filepath: str
         """
+        logger.info(f"Loading reference point cloud from {filepath}...")
         # read based on file extension
         if Path(filepath).suffix in [".las", ".laz"]:
             self.reference = read_las_file(filepath)
@@ -252,6 +260,7 @@ class PointCloudPair:
         if isinstance(filepaths, str):
             filepaths = [filepaths]
         for filepath in filepaths:
+            logger.info(f"Loading comparison point cloud from {filepath}...")
             if Path(filepath).suffix in [".las", ".laz"]:
                 self.compare.append(read_las_file(filepath))
             elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
@@ -360,19 +369,30 @@ class PointCloudPair:
                 )
         else:
             raise ValueError(f"Backend {backend} not supported.")
-
         if len(jakteristics_features) > 0:
-            compute_geom_feat_jakteristics(
-                self.reference, jakteristics_features, radius, max_knn
-            )
-            for compare_pc in self.compare:
+            with logger_context(
+                f"Computing geometric features for reference pc using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
+            ):
                 compute_geom_feat_jakteristics(
-                    compare_pc, jakteristics_features, radius, max_knn
+                    self.reference, jakteristics_features, radius, max_knn
                 )
-        if len(pgeof_features) > 0:
-            compute_geom_feat_pgeof(self.reference, pgeof_features, radius, max_knn)
             for compare_pc in self.compare:
-                compute_geom_feat_pgeof(compare_pc, pgeof_features, radius, max_knn)
+                with logger_context(
+                    f"Computing geometric features for {Path(compare_pc.source).name} using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
+                ):
+                    compute_geom_feat_jakteristics(
+                        compare_pc, jakteristics_features, radius, max_knn
+                    )
+        if len(pgeof_features) > 0:
+            with logger_context(
+                f"Computing geometric features for reference pc using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
+            ):
+                compute_geom_feat_pgeof(self.reference, pgeof_features, radius, max_knn)
+            for compare_pc in self.compare:
+                with logger_context(
+                    f"Computing geometric features for {Path(compare_pc.source).name} using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
+                ):
+                    compute_geom_feat_pgeof(compare_pc, pgeof_features, radius, max_knn)
 
     def compute_voxel_features(
         self,
@@ -403,7 +423,12 @@ class PointCloudPair:
             feature_names = []
         vapc_list = []
         for pc in [self.reference] + self.compare:
-            vapc = compute_geom_feat_vapc(pc, voxel_size, voxel_origin, feature_names)
+            with logger_context(
+                f"Computing voxel features for {Path(pc.source).name} using VAPC. {feature_names}, voxel size: {voxel_size}"
+            ):
+                vapc = compute_geom_feat_vapc(
+                    pc, voxel_size, voxel_origin, feature_names
+                )
             vapc_list.append(vapc)
 
         return (
@@ -432,6 +457,7 @@ class PointCloudPair:
             raise ValueError(
                 "Cannot filter by class if one of the point clouds does not have 'classification' attribute."
             )
+        logger.info(f"Filtering point clouds by classes {classes}...")
         new_pair = PointCloudPair(
             shift_z=self.shift_z,
             shift_gps_time=self.shift_gps_time,
@@ -528,12 +554,10 @@ class PointCloudPair:
                         if f not in seen:
                             expanded_attributes.append(f)
                             seen.add(f)
-                    # TODO: turn below warning into info message when implementing logging
-                    # if len(partial_matches_sorted) > 1:
-                    #    warnings.warn(
-                    #        f"Attribute '{attr}' matched multiple features: {partial_matches_sorted}",
-                    #        UserWarning,
-                    #    )
+                    if len(partial_matches_sorted) > 1:
+                        logger.info(
+                            f"Attribute '{attr}' matched multiple features: {partial_matches_sorted}. Adding all matches to the report."
+                        )
                 else:
                     # No match found - add as-is and let get_attribute_data raise the error
                     expanded_attributes.append(attr)
@@ -568,6 +592,9 @@ class PointCloudPair:
 
         # if attribute list is None, use all attributes available in the point clouds (except for x and y coordinates)
         if attribute_list is None:
+            logger.info(
+                "No attribute list provided. Using all available attributes in the point clouds for the report (except for x and y coordinates)."
+            )
             expanded_attribute_list = self._collect_all_attributes(compare)
             expanded_attribute_list.remove("x")
             expanded_attribute_list.remove("y")
@@ -591,7 +618,17 @@ class PointCloudPair:
             preview=preview,
         )
 
-    def write_point_clouds(self, output_folder: str):
+    def write_point_clouds(self, output_folder: str) -> None:
+        """
+        Write the reference and comparison point clouds with all newly computed attributes to the specified output folder as LAS files.
+        The output files will have the same names as the input files.
+
+        :param output_folder: The folder to write the output LAS files to. If the folder does not exist, it will be created.
+        :type output_folder: str
+        """
+        logger.info(
+            f"Writing reference and comparison point clouds with all attributes to {output_folder}..."
+        )
         # write reference and compare point clouds (with new attributes) to output folder
         output_folder = Path(output_folder)
         output_folder.mkdir(parents=True, exist_ok=True)
@@ -620,6 +657,9 @@ def write_voxelized_point_clouds(
     vapc = vapc.reduce_to_feature(feature_name=reduce_to_feature)
     suffix = f"_voxelized_{reduce_to_feature}_v{vapc.voxel_size}.laz"
     outpath = Path(str(filebase) + suffix)
+    logger.info(
+        f"Writing voxelized point cloud to {outpath}, reduced to {reduce_to_feature}..."
+    )
     vapc.save_as_las(outpath)
 
 
@@ -634,7 +674,6 @@ def read_las_file(filepath):
         A PointCloud object containing the data from the file.
     :rtype: PointCloud
     """
-
     # Read the lasfile using laspy
     las = laspy.read(filepath)
 
@@ -658,7 +697,6 @@ def read_las_file(filepath):
         if "classification" in las.point_format.dimension_names
         else None
     )
-
     # create new PointCloud and assign attributes
     pc = PointCloud()
     pc.coords = np.vstack((las.x, las.y, las.z)).T

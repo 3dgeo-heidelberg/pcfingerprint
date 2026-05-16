@@ -19,9 +19,7 @@ pc_pair.generate_report(
     ],  # "histogram" will instead plot histograms side by side
     vis_backend="plotly",
 )
-print("Report generated.")
 
 # write point clouds to disk
 pc_outfolder = Path("output_pcs_risley/")
 pc_pair.write_point_clouds(pc_outfolder)
-print(f"Point clouds written to {pc_outfolder}")

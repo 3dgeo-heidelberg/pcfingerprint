@@ -1,6 +1,7 @@
 # custom
 data/*
 output_*/
+pcfingerprint.log
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

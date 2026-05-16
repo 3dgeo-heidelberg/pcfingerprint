@@ -13,7 +13,6 @@ pc_pair = pcfingerprint.PointCloudPair(
 )
 pc_pair.load_reference(data_folder / "plot_09_original_1.laz")
 pc_pair.load_compare(list(data_folder.glob("plot_09_simulated_1.laz")))
-print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
 
 # compute voxel features
 voxel_size = 0.5
@@ -23,7 +22,6 @@ vapc_reference, vapc_compare = pc_pair.compute_voxel_features(
     voxel_origin=[0, 0, 0],
     feature_names=["density", "linearity", "sum_of_eigenvalues"],
 )
-print(f"Voxel features computed in {time.time() - voxel_start_time:.2f} seconds.")
 
 report_start_time = time.time()
 # generate project report
@@ -46,7 +44,6 @@ pc_pair.generate_report(
     class_distribution=True,
     preview=True,
 )
-print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
 
 # write point clouds to disk
 pc_outfolder = Path("output_pcs_forest_voxel/")
@@ -62,4 +59,3 @@ for ivapc, vapc in enumerate(vapc_compare):
         pc_outfolder / f"{pc_pair.compare[ivapc].source.name}",
         reduce_to_feature="closest_to_centroids",
     )
-print(f"Point clouds written to {pc_outfolder}")

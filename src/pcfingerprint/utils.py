@@ -1,4 +1,8 @@
+from pathlib import Path
 import numpy as np
+import logging
+
+logger = logging.getLogger("pcfingerprint")
 
 
 def shift_to_zero(array):
@@ -158,8 +162,8 @@ def subsample_points(pc, max_n_points: int = 500_000):
     if num_points > max_n_points:
         indices = np.random.choice(num_points, max_n_points, replace=False)
         pc = pc.mask(indices)
-        print(
-            f"Subsampled from {num_points} to {pc.coords.shape[0]} points for visualization."
+        logger.info(
+            f"Subsampled {Path(pc.source).name} from {num_points} to {pc.coords.shape[0]} points for visualization."
         )
     else:
         indices = np.arange(num_points)

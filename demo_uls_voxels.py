@@ -9,20 +9,17 @@ report_folder = Path("output_report_uls_tree_voxels")
 pc_pair = pcfingerprint.PointCloudPair(standardize_intensity=False, shift_z=True)
 pc_pair.load_reference(data_folder / "uls_reference.laz")
 pc_pair.load_compare(list(data_folder.glob("uls_detailed_voxel*.laz")))
-print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
 
 pdens_start_time = time.time()
 # compute density and geometric features
 pc_pair.compute_geometric_features(
     feature_names=["density"], radius=0.5, backend="jakteristics"
 )
-print(f"Density computed in {time.time() - pdens_start_time:.2f} seconds.")
 
 geom_start_time = time.time()
 pc_pair.compute_geometric_features(
     feature_names=["linearity"], radius=1.0, backend="pgeof"
 )
-print(f"Geometric features computed in {time.time() - geom_start_time:.2f} seconds.")
 
 report_start_time = time.time()
 # generate project report
@@ -37,7 +34,6 @@ pc_pair.generate_report(
     ],  # "histogram" will instead plot histograms side by side
     vis_backend="plotly",
 )
-print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
 
 report_folder = Path("output_report_uls_tree_voxels_matplotlib")
 report_start_time = time.time()
@@ -54,9 +50,7 @@ pc_pair.generate_report(
     vis_backend="matplotlib",
     preview=False,
 )
-print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
 
 # write point clouds to disk
 pc_outfolder = Path("output_pcs/")
 pc_pair.write_point_clouds(pc_outfolder)
-print(f"Point clouds written to {pc_outfolder}")
