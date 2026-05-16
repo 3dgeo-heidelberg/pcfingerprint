@@ -18,6 +18,9 @@ import pcfingerprint
 import webbrowser
 import http.server
 import socketserver
+import logging
+
+logger = logging.getLogger("pcfingerprint")
 
 IMG_FOLDER = "images"
 
@@ -54,7 +57,7 @@ def serve_report_folder(output_folder: str, open_browser: bool = True):
     with socketserver.TCPServer(("", 0), handler) as httpd:
         port = httpd.server_address[1]
         url = f"http://localhost:{port}/index.html"
-        print(f"Starting server on {url}")
+        logger.info(f"Starting server on {url}")
 
         if open_browser:
             webbrowser.open(url)
@@ -62,7 +65,7 @@ def serve_report_folder(output_folder: str, open_browser: bool = True):
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\nServer stopped.")
+            logger.info("\nServer stopped.")
 
 
 def inline_report_header_logo(report_file: Path) -> None:
@@ -484,6 +487,7 @@ def generate_report(
             )
         ):
             # compute summary statistics
+            logger.info(f"Computing summary statistics for attribute '{attribute}'...")
             stats_reference = stats.compute_statistics(reference_data)
             stats_compare = [stats.compute_statistics(data) for data in compare_data]
 
@@ -697,7 +701,7 @@ def generate_report(
 
     if class_distribution:
         section = Section(section_title=f"Class Distribution Metrics")
-
+        logger.info(f"Computing class distribution metrics...")
         # compute class distribution metrics
         metrics_reference = stats.compute_class_distribution_metrics(
             reference_pc.classification, class_mapping=class_mapping
@@ -742,6 +746,7 @@ def generate_report(
     if return_number_metrics:
         section = Section(section_title=f"Return Number Metrics")
 
+        logger.info(f"Computing return number metrics...")
         # compute return number statistics
         metrics_reference = stats.compute_return_number_metrics(
             reference_pc.return_number, reference_pc.number_of_returns

@@ -11,13 +11,11 @@ pc_pair.load_reference(data_folder / "INF_trees_VZ600i_260317_merged_local.laz")
 pc_pair.load_compare(
     list(data_folder.glob("output_tree1_mesh_0.10ns*_merged_trees.laz"))
 )
-print(f"Data loaded in {time.time() - start_time:.2f} seconds.")
 
 geom_start_time = time.time()
 pc_pair.compute_geometric_features(
     feature_names=["linearity"], radius=0.1, backend="pgeof"
 )
-print(f"Geometric features computed in {time.time() - geom_start_time:.2f} seconds.")
 
 voxel_start_time = time.time()
 pc_pair.compute_voxel_features(
@@ -26,7 +24,6 @@ pc_pair.compute_voxel_features(
 pc_pair.compute_voxel_features(
     feature_names=["linearity", "planarity"], voxel_size=0.05
 )
-print(f"Voxel features computed in {time.time() - voxel_start_time:.2f} seconds.")
 
 
 report_start_time = time.time()
@@ -52,9 +49,7 @@ pc_pair.generate_report(
     ],  # "histogram" will instead plot histograms side by side
     vis_backend="plotly",
 )
-print(f"Report generated in {time.time() - report_start_time:.2f} seconds.")
 
 # write point clouds to disk
 pc_outfolder = Path("output_pcs/")
 pc_pair.write_point_clouds(pc_outfolder)
-print(f"Point clouds written to {pc_outfolder}")
