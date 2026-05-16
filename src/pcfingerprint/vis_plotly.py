@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from jinja2 import Template
 import pcfingerprint
-from pcfingerprint.utils import subsample_points, _validate_classes
+from pcfingerprint.utils import subsample_points_random, _validate_classes
 
 import logging
 
@@ -224,9 +224,9 @@ def plot_3d_scatter(
     # only do subsampling if attributes is not voxel-based
     if attribute not in reference_pc.voxel_features:
         # subsample points if necessary
-        reference_pc, _ = subsample_points(reference_pc, max_n_points)
+        reference_pc, _ = subsample_points_random(reference_pc, max_n_points)
         compare_pc_sub = [
-            subsample_points(compare_pc, max_n_points)
+            subsample_points_random(compare_pc, max_n_points)
             for i, compare_pc in enumerate(compare_pcs)
         ]
         compare_pcs, _ = zip(*compare_pc_sub)
