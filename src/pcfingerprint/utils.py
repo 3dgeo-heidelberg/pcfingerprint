@@ -145,7 +145,7 @@ def point_cloud_to_vapc(
     return py4dgeo.Vapc(epoch, voxel_size=voxel_size, origin=voxel_origin)
 
 
-def subsample_points(pc, max_n_points: int = 500_000):
+def subsample_points_random(pc, max_n_points: int = 500_000):
     """
     Randomly subsample the point cloud to a maximum number of points.
     If the point cloud has less points than the specified maximum, it will be returned unchanged.
@@ -168,6 +168,54 @@ def subsample_points(pc, max_n_points: int = 500_000):
     else:
         indices = np.arange(num_points)
     return pc, indices
+
+
+def subsample_points_voxel(
+    pc, voxel_size: float, mode: str = "closest_to_centroids"
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Voxel-based subsamplint using py4dgeo's VAPC.
+
+    :param pc: The input PointCloud object to be subsampled.
+    :type pc: PointCloud
+    :param voxel_size: Size of the voxels.
+    :type voxel_size: float
+    :param mode: Mode for reducing points within each voxel. Options are "closest_to_centroids" or "closest_to_voxel_centers".
+    :type mode: str
+
+    :return: The subsampled point cloud and the indices of the points that were kept.
+    :rtype: tuple[np.ndarray, np.ndarray]
+    """
+    vapc = point_cloud_to_vapc(
+        pc, voxel_size=voxel_size, include_additional_dimensions=False
+    )
+    reduced_vapc = vapc.reduce_to_feature(mode)
+    indices = reduced_vapc.original_point_cloud_indices
+    pc = pc.mask(indices)
+
+    return pc, indices
+
+
+def _estimate_voxel_size_for_target_voxel_count(pc, target_voxel_count: int) -> float:
+    """
+    Based on the bounding box of the point cloud and the target number of voxels, estimate a voxel size that would yield approximately the target number of voxels when subsampling with VAPC.
+
+    :param pc: The input PointCloud object for which to estimate the voxel size.
+    :type pc: PointCloud
+    :param target_voxel_count: The target number of voxels to aim for when subsampling.
+    :type target_voxel_count: int
+
+    :return: The estimated voxel size to achieve the target number of voxels.
+    :rtype: float
+    """
+    min_coords = np.min(pc.coords, axis=0)
+    max_coords = np.max(pc.coords, axis=0)
+    bounding_box_size = max_coords - min_coords
+    voxel_size = (bounding_box_size.prod() / target_voxel_count) ** (1 / 3)
+
+    # round to a reasonable number of decimal places for typical point cloud coordinate scales
+    voxel_size = round(voxel_size, 4)
+    return voxel_size
 
 
 def _validate_classes(pc):

@@ -1,8 +1,6 @@
-from pathlib import Path
 import pcfingerprint
 import numpy as np
 import pytest
-from matplotlib.figure import Figure
 
 
 def test_load_point_clouds(pc_pair_uls_voxels):
