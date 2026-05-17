@@ -2,7 +2,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import pcfingerprint
-import warnings
 
 # create random seed
 rng = np.random.default_rng(45621231543)
@@ -55,8 +54,13 @@ def add_voxel_features(pc, rng, n_voxels=50):
 @pytest.fixture()
 def pc_pair_uls_voxels():
     pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_reference("data/uls_tree_voxels/uls_reference.laz")
-    pc_pair.load_compare("data/uls_tree_voxels/uls_detailed_voxel_modes_scaled.laz")
+    pc_pair.load_reference(
+        Path(__file__).parent / "data/uls_tree_voxels/uls_reference.laz"
+    )
+    pc_pair.load_compare(
+        Path(__file__).parent
+        / "data/uls_tree_voxels/uls_detailed_voxel_modes_scaled.laz"
+    )
 
     return pc_pair
 
@@ -64,9 +68,15 @@ def pc_pair_uls_voxels():
 @pytest.fixture()
 def pc_pair_uls_voxels_multiple():
     pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_reference("data/uls_tree_voxels/uls_reference.laz")
+    pc_pair.load_reference(
+        Path(__file__).parent / "data/uls_tree_voxels/uls_reference.laz"
+    )
     pc_pair.load_compare(
-        list(Path("data/uls_tree_voxels").glob("uls_detailed_voxel*.laz"))
+        list(
+            (Path(__file__).parent / "data/uls_tree_voxels").glob(
+                "uls_detailed_voxel*.laz"
+            )
+        )
     )
 
     return pc_pair

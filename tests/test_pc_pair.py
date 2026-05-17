@@ -1,8 +1,6 @@
-from pathlib import Path
 import pcfingerprint
 import numpy as np
 import pytest
-from matplotlib.figure import Figure
 
 # create random seed
 rng = np.random.default_rng(45621231543)

@@ -257,7 +257,7 @@ class PointCloudPair:
         :param filepaths: File path(s) to load. Can be a single file path (str) or a list of file paths (list[str]). Supported formats are LAS/LAZ and XYZ.
         :type filepaths: list[str] | str
         """
-        if isinstance(filepaths, str):
+        if isinstance(filepaths, str) or isinstance(filepaths, Path):
             filepaths = [filepaths]
         for filepath in filepaths:
             logger.info(f"Loading comparison point cloud from {filepath}...")
