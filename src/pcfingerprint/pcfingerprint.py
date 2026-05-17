@@ -377,8 +377,13 @@ class PointCloudPair:
                     self.reference, jakteristics_features, radius, max_knn
                 )
             for compare_pc in self.compare:
+                name = (
+                    Path(compare_pc.source).name
+                    if compare_pc.source is not None
+                    else "unknown source"
+                )
                 with logger_context(
-                    f"Computing geometric features for {Path(compare_pc.source).name} using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
+                    f"Computing geometric features for {name} using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
                 ):
                     compute_geom_feat_jakteristics(
                         compare_pc, jakteristics_features, radius, max_knn
@@ -389,8 +394,13 @@ class PointCloudPair:
             ):
                 compute_geom_feat_pgeof(self.reference, pgeof_features, radius, max_knn)
             for compare_pc in self.compare:
+                name = (
+                    Path(compare_pc.source).name
+                    if compare_pc.source is not None
+                    else "unknown source"
+                )
                 with logger_context(
-                    f"Computing geometric features for {Path(compare_pc.source).name} using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
+                    f"Computing geometric features for {name} using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
                 ):
                     compute_geom_feat_pgeof(compare_pc, pgeof_features, radius, max_knn)
 
@@ -423,8 +433,9 @@ class PointCloudPair:
             feature_names = []
         vapc_list = []
         for pc in [self.reference] + self.compare:
+            name = Path(pc.source).name if pc.source is not None else "unknown source"
             with logger_context(
-                f"Computing voxel features for {Path(pc.source).name} using VAPC. {feature_names}, voxel size: {voxel_size}"
+                f"Computing voxel features for {name} using VAPC. {feature_names}, voxel size: {voxel_size}"
             ):
                 vapc = compute_geom_feat_vapc(
                     pc, voxel_size, voxel_origin, feature_names
