@@ -32,3 +32,12 @@ dependencies = [
     "pgeof",
     "py4dgeo"
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: mark a test as an integration test (deselect with '-m \"not integration\"')",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
