@@ -3,7 +3,7 @@ from pathlib import Path
 
 # define input and output paths
 script_path = Path(__file__).parent
-data_folder = script_path / "../data/uls_tree_voxels"
+data_folder = script_path / "../tests/data/uls_tree_voxels"
 report_folder = script_path / "../output_report_uls_tree_voxels"
 report_folder_matplotlib = script_path / "../output_report_uls_tree_voxels_matplotlib"
 pc_outfolder = script_path / "../output_pcs/"
