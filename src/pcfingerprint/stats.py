@@ -123,6 +123,12 @@ def compute_class_distribution_metrics(
     total_points = int(class_labels.shape[0])
     unique_classes, counts = np.unique(class_labels, return_counts=True)
     # compare with target classes and set counts to 0 for missing classes
+    target_classes = np.asarray(target_classes, dtype=unique_classes.dtype)
+    count_map = dict(zip(unique_classes.tolist(), counts.tolist()))
+    unique_classes = np.array(target_classes, dtype=unique_classes.dtype)
+    # fill counts from count map, defaulting to 0 for missing classes
+    counts = np.array([count_map.get(cls, 0) for cls in target_classes], dtype=int)
+
     for cls in target_classes:
         if cls not in unique_classes:
             unique_classes = np.append(unique_classes, cls)
