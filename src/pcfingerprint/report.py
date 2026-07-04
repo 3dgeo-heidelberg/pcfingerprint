@@ -706,8 +706,12 @@ def generate_report(
         section = Section(section_title=f"Class Distribution Metrics")
         logger.info(f"Computing class distribution metrics...")
         # determine all unique classes (also non-overlapping)
-        class_all = np.union1d(reference_pc.classification, [cls for pc in compare_pcs for cls in pc.classification])
-        unique_classes = np.unique(class_all)
+        unique_classes = np.unique(
+            np.concatenate(
+                [np.unique(reference_pc.classification)]
+                + [np.unique(pc.classification) for pc in compare_pcs]
+            )
+        )
 
         # compute class distribution metrics
         metrics_reference = stats.compute_class_distribution_metrics(
