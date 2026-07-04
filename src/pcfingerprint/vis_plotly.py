@@ -156,8 +156,9 @@ def _histogram_bin_edges(values_list, bins: int) -> np.ndarray:
         min_value -= padding
         max_value += padding
     # if data type of array is int, add padding to make sure the bin edges are at 0.5 intervals
-    if np.issubdtype(combined.dtype, np.integer):
-        max_value += 1.0
+    elif np.issubdtype(combined.dtype, np.integer):
+        min_value -= 0.5
+        max_value += 0.5
 
     return np.linspace(min_value, max_value, bins + 1)
 
@@ -182,6 +183,7 @@ def _histogram_bar_trace(
 
     counts = counts.astype(float)
     bin_widths = np.diff(bin_edges)
+    bin_centers = bin_edges[:-1] + bin_widths / 2
 
     if histnorm == "probability density":
         total = counts.sum()
@@ -189,7 +191,7 @@ def _histogram_bar_trace(
             counts = counts / (total * bin_widths)
 
     return go.Bar(
-        x=bin_edges[:-1],
+        x=bin_centers,
         y=counts,
         width=bin_widths,
         name=name,
