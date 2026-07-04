@@ -224,7 +224,8 @@ class FigureSelection(Figure):
         :return: HTML fragment with selector, image elements, and JavaScript.
         :rtype: str
         """
-        element_id = f"fig_sel_{self.id.replace('-', '_')}"
+        figure_id = (self.id or f"{id(self):x}").replace("-", "_")
+        element_id = f"fig_sel_{figure_id}"
 
         # Create the dropdown options
         options_html = ""
@@ -356,6 +357,8 @@ def generate_report(
     :return: None
     :rtype: None
     """
+    Path(output_folder).mkdir(parents=True, exist_ok=True)
+
     if summary_statistics or return_number_metrics:
         from pcfingerprint import stats
 
@@ -702,13 +705,17 @@ def generate_report(
     if class_distribution:
         section = Section(section_title=f"Class Distribution Metrics")
         logger.info(f"Computing class distribution metrics...")
+        # determine all unique classes (also non-overlapping)
+        class_all = np.union1d(reference_pc.classification, [cls for pc in compare_pcs for cls in pc.classification])
+        unique_classes = np.unique(class_all)
+
         # compute class distribution metrics
         metrics_reference = stats.compute_class_distribution_metrics(
-            reference_pc.classification, class_mapping=class_mapping
+            reference_pc.classification, target_classes=unique_classes, class_mapping=class_mapping
         )
         metrics_compare = [
             stats.compute_class_distribution_metrics(
-                compare_pc.classification, class_mapping=class_mapping
+                compare_pc.classification, target_classes=unique_classes, class_mapping=class_mapping
             )
             for compare_pc in compare_pcs
         ]

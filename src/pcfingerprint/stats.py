@@ -102,7 +102,7 @@ def compute_return_number_metrics(return_number, number_of_returns) -> dict:
 
 
 def compute_class_distribution_metrics(
-    class_labels, class_mapping: dict[int, str] | None = None
+    class_labels, target_classes: list[int], class_mapping: dict[int, str] | None = None
 ) -> dict:
     """
     Function to compute simple class distribution metrics, including:
@@ -111,6 +111,8 @@ def compute_class_distribution_metrics(
 
     :param class_labels: Array of class labels
     :type class_labels: sequence or np.ndarray (or laspy SubFieldView)
+    :param target_classes: List of target classes to include in the metrics
+    :type target_classes: list[int]
     :param class_mapping: Optional dict mapping class values to class names
     :type class_mapping: dict[int, str] | None
 
@@ -120,6 +122,19 @@ def compute_class_distribution_metrics(
     class_labels = np.array(class_labels)
     total_points = int(class_labels.shape[0])
     unique_classes, counts = np.unique(class_labels, return_counts=True)
+    # compare with target classes and set counts to 0 for missing classes
+    for cls in target_classes:
+        if cls not in unique_classes:
+            unique_classes = np.append(unique_classes, cls)
+            counts = np.append(counts, 0)
+
+    # check if class_mapping is provided and unique classes are equal to the keys of class_mapping
+    if class_mapping is not None:
+        if set(unique_classes) != set(class_mapping.keys()):
+            logger.warning(
+                "Unique classes in class_labels do not match keys in class_mapping. "
+                "Some classes may be missing or extra."
+            )
     metrics = {"total points": total_points}
     for cls, count in zip(unique_classes, counts):
         class_name = (
