@@ -654,6 +654,8 @@ class PointCloudPair:
             expanded_distance_list = self._expand_attribute_names(
                 compare, distance_list
             )
+        else:
+            expanded_distance_list = None
 
         generate_report(
             self.reference,
