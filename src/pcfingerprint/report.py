@@ -358,7 +358,8 @@ def generate_report(
     :return: None
     :rtype: None
     """
-    Path(output_folder).mkdir(parents=True, exist_ok=True)
+    output_folder = Path(output_folder)
+    output_folder.mkdir(parents=True, exist_ok=True)
 
     if summary_statistics or return_number_metrics:
         from pcfingerprint import stats
@@ -707,8 +708,8 @@ def generate_report(
         section = Section(section_title=f"Outlier Statistics")
         logger.info(f"Computing outlier statistics...")
         # compute outlier statistics
-        if reference_pc.sor is None or any(
-            compare_pc.sor is None for compare_pc in compare_pcs
+        if len(reference_pc.sor.keys()) == 0 or any(
+            len(compare_pc.sor.keys()) == 0 for compare_pc in compare_pcs
         ):
             logger.warning(
                 "Outlier statistics requested but SOR outlier flags not computed for all point clouds. Skipping outlier statistics."
