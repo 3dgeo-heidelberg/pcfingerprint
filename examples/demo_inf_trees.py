@@ -14,9 +14,11 @@ pc_pair.load_compare(
     list(data_folder.glob("output_tree1_mesh_0.10ns*_merged_trees.laz"))
 )
 
-pc_pair.compute_geometric_features(
-    feature_names=["linearity"], radius=0.1, backend="pgeof"
-)
+pc_pair.compute_c2c_distances(max_distance=1.0)
+
+# pc_pair.compute_geometric_features(
+#    feature_names=["linearity"], radius=0.1, backend="pgeof"
+# )
 
 pc_pair.compute_voxel_features(
     feature_names=["density", "linearity", "planarity"], voxel_size=0.2
@@ -37,8 +39,9 @@ pc_pair.generate_report(
         "planarity_v0.2",
         "linearity_v0.05",
         "planarity_v0.05",
-        "linearity_r0.1",
+        # "linearity_r0.1",
     ],
+    distance_list=["c2c"],
     summary_statistics=True,
     return_number_metrics=True,
     visualizations=[
