@@ -17,8 +17,8 @@ from pcfingerprint.vis_common import (
     prepare_distance_scatter_comp_data,
     prepare_distance_scatter_ref_data,
     histogram_bin_edges,
-    histogram_counts,
     classification_color_mapping,
+    prepare_histogram_data_per_class,
 )
 
 import logging
@@ -148,22 +148,6 @@ def _histogram_bar_trace(
         showlegend=showlegend,
         marker_line_width=0,
     )
-
-
-def _classification_color_mapping(values_list):
-    """Wrapper that returns a Plotly `colorscale` constructed from shared mapping."""
-    class_values, mapped_colors = classification_color_mapping(values_list)
-    if len(mapped_colors) == 1:
-        colorscale = [[0.0, mapped_colors[0]], [1.0, mapped_colors[0]]]
-    else:
-        colorscale = []
-        n_colors = len(mapped_colors)
-        for i, color in enumerate(mapped_colors):
-            start = i / n_colors
-            end = (i + 1) / n_colors
-            colorscale.extend([[start, color], [end, color]])
-
-    return class_values, colorscale
 
 
 def plot_3d_scatter(
@@ -556,27 +540,14 @@ def plot_histogram_per_class(
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
-
-    _validate_classes(reference_pc)
-    for compare_pc in compare_pcs:
-        _validate_classes(compare_pc)
-
-    classes = np.unique(reference_pc.classification)
-
+    classes, hists_reference, hists_compare = prepare_histogram_data_per_class(
+        reference_pc, compare_pcs
+    )
     figs = []
-    for compare_pc in compare_pcs:
-        compare_classes = np.unique(compare_pc.classification)
-        classes = np.union1d(classes, compare_classes)
-    for class_value in classes:
-        class_filter_reference = reference_pc.classification == class_value
-        class_filters_compare = [
-            compare_pc.classification == class_value for compare_pc in compare_pcs
-        ]
-        hist_reference_class = reference_pc.mask(class_filter_reference)
-        hist_compare_class = [
-            compare_pc.mask(class_filters_compare[i])
-            for i, compare_pc in enumerate(compare_pcs)
-        ]
+
+    for class_value, hist_reference_class, hist_compare_class in zip(
+        classes, hists_reference, hists_compare
+    ):
         fig = plot_histogram(
             hist_reference_class,
             hist_compare_class,

@@ -13,6 +13,7 @@ import numpy as np
 import plotly.express as px
 
 import pcfingerprint
+from pcfingerprint.utils import _validate_classes
 
 
 def prepare_attribute_data(
@@ -114,6 +115,37 @@ def prepare_attribute_data(
     )
 
 
+def prepare_histogram_data_per_class(
+    reference_pc,
+    compare_pcs: List,
+):
+    """Prepare histogram data per class for the specified attribute."""
+    _validate_classes(reference_pc)
+    for compare_pc in compare_pcs:
+        _validate_classes(compare_pc)
+
+    classes = np.unique(reference_pc.classification)
+    hists_reference = []
+    hists_compare = []
+    for compare_pc in compare_pcs:
+        compare_classes = np.unique(compare_pc.classification)
+        classes = np.union1d(classes, compare_classes)
+    for class_value in classes:
+        class_filter_reference = reference_pc.classification == class_value
+        class_filters_compare = [
+            compare_pc.classification == class_value for compare_pc in compare_pcs
+        ]
+        hist_reference_class = reference_pc.mask(class_filter_reference)
+        hist_compare_class = [
+            compare_pc.mask(class_filters_compare[i])
+            for i, compare_pc in enumerate(compare_pcs)
+        ]
+        hists_reference.append(hist_reference_class)
+        hists_compare.append(hist_compare_class)
+
+    return classes, hists_reference, hists_compare
+
+
 def plot_grid_layout(
     num_plots: int, all_comparison: bool = False
 ) -> Tuple[int, int, List[str]]:
@@ -208,34 +240,6 @@ def histogram_bin_edges(values_list: List, bins: int) -> np.ndarray:
         max_value += 0.5
 
     return np.linspace(min_value, max_value, bins + 1)
-
-
-def histogram_counts(
-    values, bin_edges: np.ndarray, normalize: bool = False
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Compute histogram counts, bin_centers and bin_widths.
-
-    If `normalize=True` the counts are divided to produce a probability density
-    (counts / (total * bin_width)).
-    """
-    arr = np.asarray(values)
-    arr = arr[np.isfinite(arr)]
-
-    if arr.size == 0:
-        counts = np.zeros(len(bin_edges) - 1)
-    else:
-        counts, _ = np.histogram(arr, bins=bin_edges)
-
-    counts = counts.astype(float)
-    bin_widths = np.diff(bin_edges)
-    bin_centers = bin_edges[:-1] + bin_widths / 2.0
-
-    if normalize:
-        total = counts.sum()
-        if total > 0:
-            counts = counts / (total * bin_widths)
-
-    return counts, bin_centers, bin_widths
 
 
 def classification_color_mapping(values_list: List) -> Tuple[np.ndarray, List[str]]:

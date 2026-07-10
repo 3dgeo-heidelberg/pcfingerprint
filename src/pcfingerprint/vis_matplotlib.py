@@ -10,9 +10,7 @@ from pcfingerprint.vis_common import (
     plot_grid_layout,
     prepare_distance_scatter_comp_data,
     prepare_distance_scatter_ref_data,
-    histogram_bin_edges,
-    histogram_counts,
-    classification_color_mapping,
+    prepare_histogram_data_per_class,
 )
 import numpy as np
 import logging
@@ -502,26 +500,13 @@ def plot_histogram_per_class(
     :type normalize: bool
     """
 
-    _validate_classes(reference_pc)
-    for compare_pc in compare_pcs:
-        _validate_classes(compare_pc)
-
+    classes, hists_reference, hists_compare = prepare_histogram_data_per_class(
+        reference_pc, compare_pcs
+    )
     figs = []
 
-    classes = np.unique(reference_pc.classification)
-    for compare_pc in compare_pcs:
-        compare_classes = np.unique(compare_pc.classification)
-        classes = np.union1d(classes, compare_classes)
-    for class_value in classes:
-        class_filter_reference = reference_pc.classification == class_value
-        class_filters_compare = [
-            compare_pc.classification == class_value for compare_pc in compare_pcs
-        ]
-        hist_reference_class = reference_pc.mask(class_filter_reference)
-        hist_compare_class = [
-            compare_pc.mask(class_filters_compare[i])
-            for i, compare_pc in enumerate(compare_pcs)
-        ]
+    for hist_reference_class, hist_compare_class in zip(hists_reference, hists_compare):
+
         fig = plot_histogram(
             hist_reference_class,
             hist_compare_class,
@@ -531,4 +516,5 @@ def plot_histogram_per_class(
             normalize=normalize,
         )
         figs.append(fig)
+
     return figs, classes
