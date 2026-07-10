@@ -2,6 +2,7 @@ import warnings
 import logging
 import numpy as np
 import laspy
+import py4dgeo
 from pcfingerprint.geometric_features import (
     compute_geom_feat_pgeof,
     compute_geom_feat_vapc,
@@ -42,8 +43,11 @@ class PointCloud:
         self.intensity = intensity  # int array
         self.classification = classification  # int array for point classification
         self.geometric_features = {}  # dict of feature name to float array
-        self.voxel_features = {}  # dict of feature name to float array for voxel-based features
+        self.voxel_features = (
+            {}
+        )  # dict of feature name to float array for voxel-based features
         self.is_outlier = None  # boolean array
+        self.c2c = {}  # dict of cloud-to-cloud distances
 
     def shift_z_to_zero(self):
         """Shift the z-coordinates so that the minimum z-value is zero."""
@@ -167,6 +171,9 @@ class PointCloud:
                     UserWarning,
                 )
                 new_pc.geometric_features[feat_name] = feat_data[indices]
+            # c2c distances
+            for dist_name, dist_data in self.c2c.items():
+                new_pc.c2c[dist_name] = dist_data[indices]
             # voxel features
             for feat_name, feat_data in self.voxel_features.items():
                 new_pc.voxel_features[feat_name] = self._mask_voxel_feature(
@@ -445,6 +452,32 @@ class PointCloudPair:
             vapc_list[1:],
         )  # return reference VAPC and list of compare VAPCs
 
+    def compute_c2c_distances(self, max_distance: float = None):
+        """
+        Compute cloud-to-cloud distances between the reference and each comparison point cloud (both directions).
+        The distances are stored in
+        - the c2c attribute of the reference point cloud (dictionary with arrays of distances to each comparison point cloud)
+        - the c2c attribute of each comparison point cloud (dictionary with a single array of distances to the reference point cloud)
+
+        :param max_distance: Optional maximum distance threshold. Distances greater than this value will be set to NaN. If None, no threshold is applied.
+        :type max_distance: float, optional
+        """
+        # create epochs for the point clouds
+        reference_epoch = py4dgeo.Epoch(cloud=self.reference.coords)
+
+        for i, compare_pc in enumerate(self.compare):
+            compare_epoch = py4dgeo.Epoch(cloud=compare_pc.coords)
+            # forward distances: reference to compare
+            c2c = py4dgeo.C2C(
+                epochs=(reference_epoch, compare_epoch), max_distance=max_distance
+            )
+            self.reference.c2c[f"c2c_to-compare-{i}"] = c2c.run()
+            # backward distances: compare to reference
+            c2c_rev = py4dgeo.C2C(
+                epochs=(compare_epoch, reference_epoch), max_distance=max_distance
+            )
+            compare_pc.c2c[f"c2c_to-reference"] = c2c_rev.run()
+
     def filter_by_class(self, classes: list[int]):
         """
         Filter the point clouds in the PointCloudPair to specified classes using the "classification" attribute (if present).
@@ -516,6 +549,8 @@ class PointCloudPair:
                 add_unique(attr)
             for attr in sorted(pc.voxel_features.keys()):
                 add_unique(attr)
+            for attr in sorted(pc.c2c.keys()):
+                add_unique(attr)
 
         return attributes
 
@@ -577,6 +612,7 @@ class PointCloudPair:
         self,
         output_folder: str,
         attribute_list: list[str] = None,
+        distance_list: list[str] = None,
         summary_statistics: bool = True,
         class_distribution: bool = False,
         return_number_metrics: bool = False,
@@ -613,11 +649,18 @@ class PointCloudPair:
                 compare, attribute_list
             )
 
+        if distance_list is not None:
+            # Expand distance names to match all available features for partial names
+            expanded_distance_list = self._expand_attribute_names(
+                compare, distance_list
+            )
+
         generate_report(
             self.reference,
             compare,
             output_folder,
             expanded_attribute_list,
+            distance_list=expanded_distance_list,
             summary_statistics=summary_statistics,
             return_number_metrics=return_number_metrics,
             class_distribution=class_distribution,
@@ -819,11 +862,13 @@ def write_las(
     las.z = pc.coords[:, 2]
 
     # standard las fields: gps_time, return_number, number_of_returns, intensity
-    standard_fields = ["gps_time",
-                       "return_number",
-                       "number_of_returns",
-                       "intensity",
-                       "classification"]
+    standard_fields = [
+        "gps_time",
+        "return_number",
+        "number_of_returns",
+        "intensity",
+        "classification",
+    ]
     for field in standard_fields:
         data = getattr(pc, field)
         if data is not None:
