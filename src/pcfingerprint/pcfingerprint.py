@@ -42,9 +42,7 @@ class PointCloud:
         self.intensity = intensity  # int array
         self.classification = classification  # int array for point classification
         self.geometric_features = {}  # dict of feature name to float array
-        self.voxel_features = (
-            {}
-        )  # dict of feature name to float array for voxel-based features
+        self.voxel_features = {}  # dict of feature name to float array for voxel-based features
         self.is_outlier = None  # boolean array
 
     def shift_z_to_zero(self):
@@ -821,7 +819,11 @@ def write_las(
     las.z = pc.coords[:, 2]
 
     # standard las fields: gps_time, return_number, number_of_returns, intensity
-    standard_fields = ["gps_time", "return_number", "number_of_returns", "intensity"]
+    standard_fields = ["gps_time",
+                       "return_number",
+                       "number_of_returns",
+                       "intensity",
+                       "classification"]
     for field in standard_fields:
         data = getattr(pc, field)
         if data is not None:

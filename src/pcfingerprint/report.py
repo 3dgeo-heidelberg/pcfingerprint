@@ -743,7 +743,7 @@ def generate_report(
                 df.loc[df["Metrics"] == k, df.columns != "Metrics"] = df.loc[
                     df["Metrics"] == k, df.columns != "Metrics"
                 ].map(lambda x: f"{x:.3%}")
-            elif "number" in k:
+            elif "number" in k or k == "total points":
                 # as integer with comma as thousand separator
                 df.loc[df["Metrics"] == k, df.columns != "Metrics"] = df.loc[
                     df["Metrics"] == k, df.columns != "Metrics"
