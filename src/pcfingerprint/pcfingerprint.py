@@ -853,7 +853,13 @@ def write_las(
     las.z = pc.coords[:, 2]
 
     # standard las fields: gps_time, return_number, number_of_returns, intensity
-    standard_fields = ["gps_time", "return_number", "number_of_returns", "intensity"]
+    standard_fields = [
+        "gps_time",
+        "return_number",
+        "number_of_returns",
+        "intensity",
+        "classification",
+    ]
     for field in standard_fields:
         data = getattr(pc, field)
         if data is not None:
