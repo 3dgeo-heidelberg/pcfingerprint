@@ -299,7 +299,12 @@ class PointCloudPair:
     ):
         """
         Perform statistical outlier removal (SOR) on the reference and all comparison point clouds.
-        Uses py4dgeo.sor.statistical_outlier_removal and adds a boolean array "inlier_outlier" to each PointCloud.
+        Uses py4dgeo.sor.statistical_outlier_removal and adds a boolean array named by the parameters to the sor dictionary of each PointCloud.
+
+        :param k: Number of nearest neighbors to consider for each point. Default is 8.
+        :type k: int
+        :param std_dev_multiplier: Standard deviation multiplier for determining outliers. Default is 1.0.
+        :type std_dev_multiplier: float
         """
         if self.reference.coords is None or self.compare == []:
             raise ValueError(
