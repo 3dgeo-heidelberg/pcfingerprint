@@ -324,6 +324,7 @@ def generate_report(
     output_folder: str,
     attribute_list: list[str],
     summary_statistics: bool = True,
+    outlier_statistics: bool = False,
     return_number_metrics: bool = False,
     class_distribution: bool = False,
     class_mapping: Optional[dict[int, str]] = None,
@@ -702,6 +703,67 @@ def generate_report(
     ):
         block_content[f"section_attribute_comparisons"] = section
 
+    if outlier_statistics:
+        section = Section(section_title=f"Outlier Statistics")
+        logger.info(f"Computing outlier statistics...")
+        # compute outlier statistics
+        if reference_pc.sor is None or any(
+            compare_pc.sor is None for compare_pc in compare_pcs
+        ):
+            logger.warning(
+                "Outlier statistics requested but SOR outlier flags not computed for all point clouds. Skipping outlier statistics."
+            )
+        else:
+            if len(reference_pc.sor.keys()) > 1:
+                logger.warning("Multiple SOR outlier flags found. Using the first one.")
+            outliers_reference = reference_pc.sor[
+                list(reference_pc.sor.keys())[0]
+            ].astype(bool)
+            outliers_compare = [
+                compare_pc.sor[list(compare_pc.sor.keys())[0]].astype(bool)
+                for compare_pc in compare_pcs
+            ]
+            num_outliers_reference = np.sum(outliers_reference)
+            num_outliers_compare = [np.sum(outliers) for outliers in outliers_compare]
+
+            # create a pandas dataframe which contains number of inliers and outliers and percentage of outliers in each point cloud
+            outlier_df = pd.DataFrame(
+                {
+                    "Point Cloud": ["Reference"]
+                    + [f"Comparison {i+1}" for i in range(len(compare_pcs))],
+                    "Number of Inliers": [np.sum(~outliers_reference)]
+                    + [np.sum(~outliers) for outliers in outliers_compare],
+                    "Number of Outliers": [num_outliers_reference]
+                    + [num_outliers for num_outliers in num_outliers_compare],
+                    "Percentage of Outliers": [
+                        num_outliers_reference / reference_pc.coords.shape[0]
+                    ]
+                    + [
+                        num_outliers / compare_pc.coords.shape[0]
+                        for num_outliers, compare_pc in zip(
+                            num_outliers_compare, compare_pcs
+                        )
+                    ],
+                }
+            )
+            # add a thousand separator to the number of inliers and outliers columns
+            outlier_df["Number of Inliers"] = outlier_df["Number of Inliers"].map(
+                lambda x: f"{int(x):,}"
+            )
+            outlier_df["Number of Outliers"] = outlier_df["Number of Outliers"].map(
+                lambda x: f"{int(x):,}"
+            )
+            # format the percentage of outliers as a percentage with 2 decimal places
+            outlier_df["Percentage of Outliers"] = outlier_df[
+                "Percentage of Outliers"
+            ].map(lambda x: f"{x:.2%}")
+            table = DataFrameTable(
+                outlier_df,
+                caption="Statistical Outlier Removal (SOR) Outlier Statistics",
+            )
+            section.add_content({"outlier_table": table})
+            block_content["section_outlier_statistics"] = section
+
     if class_distribution:
         section = Section(section_title=f"Class Distribution Metrics")
         logger.info(f"Computing class distribution metrics...")
@@ -715,11 +777,15 @@ def generate_report(
 
         # compute class distribution metrics
         metrics_reference = stats.compute_class_distribution_metrics(
-            reference_pc.classification, target_classes=unique_classes, class_mapping=class_mapping
+            reference_pc.classification,
+            target_classes=unique_classes,
+            class_mapping=class_mapping,
         )
         metrics_compare = [
             stats.compute_class_distribution_metrics(
-                compare_pc.classification, target_classes=unique_classes, class_mapping=class_mapping
+                compare_pc.classification,
+                target_classes=unique_classes,
+                class_mapping=class_mapping,
             )
             for compare_pc in compare_pcs
         ]

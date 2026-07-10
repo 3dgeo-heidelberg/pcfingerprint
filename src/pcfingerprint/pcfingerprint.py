@@ -2,6 +2,7 @@ import warnings
 import logging
 import numpy as np
 import laspy
+import py4dgeo
 from pcfingerprint.geometric_features import (
     compute_geom_feat_pgeof,
     compute_geom_feat_vapc,
@@ -45,7 +46,7 @@ class PointCloud:
         self.voxel_features = (
             {}
         )  # dict of feature name to float array for voxel-based features
-        self.is_outlier = None  # boolean array
+        self.sor = {}  # dict for statistical outlier removal
 
     def shift_z_to_zero(self):
         """Shift the z-coordinates so that the minimum z-value is zero."""
@@ -169,6 +170,9 @@ class PointCloud:
                     UserWarning,
                 )
                 new_pc.geometric_features[feat_name] = feat_data[indices]
+            # outlier features
+            for feat_name, feat_data in self.sor.items():
+                new_pc.sor[feat_name] = feat_data[indices]
             # voxel features
             for feat_name, feat_data in self.voxel_features.items():
                 new_pc.voxel_features[feat_name] = self._mask_voxel_feature(
@@ -289,6 +293,32 @@ class PointCloudPair:
         # if reference world point cloud is already loaded, drop non-overlapping attributes
         if self.reference.coords is not None:
             self.drop_attributes()
+
+    def compute_statistical_outlier_removal(
+        self, k: int = 8, std_dev_multiplier: float = 1.0
+    ):
+        """
+        Perform statistical outlier removal (SOR) on the reference and all comparison point clouds.
+        Uses py4dgeo.sor.statistical_outlier_removal and adds a boolean array "inlier_outlier" to each PointCloud.
+        """
+        if self.reference.coords is None or self.compare == []:
+            raise ValueError(
+                "Please load both reference and compare point clouds before computing statistical outlier removal."
+            )
+        # round std_dev_multiplier to 1 decimal place
+        std_dev_multiplier = round(std_dev_multiplier, 1)
+        # create epoch for reference
+        epoch = py4dgeo.Epoch(self.reference.coords)
+        _, inlier_outlier = py4dgeo.statistical_outlier_removal(
+            epoch, k=k, std_dev_multiplier=std_dev_multiplier
+        )
+        self.reference.sor[f"sor_k{k}_std{std_dev_multiplier}"] = inlier_outlier
+        for pc in self.compare:
+            epoch = py4dgeo.Epoch(pc.coords)
+            _, inlier_outlier = py4dgeo.statistical_outlier_removal(
+                epoch, k=k, std_dev_multiplier=std_dev_multiplier
+            )
+            pc.sor[f"sor_k{k}_std{std_dev_multiplier}"] = inlier_outlier
 
     def compute_geometric_features(
         self,
@@ -581,6 +611,7 @@ class PointCloudPair:
         attribute_list: list[str] = None,
         summary_statistics: bool = True,
         class_distribution: bool = False,
+        outlier_statistics: bool = False,
         return_number_metrics: bool = False,
         visualizations: list[str] = ["histogram_overlay"],
         vis_backend: str = "matplotlib",
@@ -621,6 +652,7 @@ class PointCloudPair:
             output_folder,
             expanded_attribute_list,
             summary_statistics=summary_statistics,
+            outlier_statistics=outlier_statistics,
             return_number_metrics=return_number_metrics,
             class_distribution=class_distribution,
             class_mapping=self.class_mapping,
@@ -829,6 +861,9 @@ def write_las(
     # geometric features (here the feature name already includes the radius suffix)
     for feat_name, feat_data in pc.geometric_features.items():
         add_dimension_to_laz(las, feat_data, feat_name)
+    # outlier flag
+    for sor_name, sor_data in pc.sor.items():
+        add_dimension_to_laz(las, sor_data.astype(np.uint8), sor_name)
 
     las.write(outfile)
 
@@ -860,6 +895,8 @@ def get_attribute_data(pc: PointCloud, attribute: str):
     - a direct attribute of the PointCloud object,
     - one of the coordinate axes ("x", "y", "z"),
     - a geometric feature (e.g. "linearity_0.2")
+    - a voxel feature (e.g. "density_0.5")
+    - an outlier flag
 
     :param pc: PointCloud object
     :type pc: PointCloud
@@ -885,5 +922,9 @@ def get_attribute_data(pc: PointCloud, attribute: str):
     if attribute in pc.voxel_features:
         feat = pc.voxel_features[attribute]
         return feat[0] if isinstance(feat, tuple) and len(feat) > 0 else feat
+
+    # Exact-match lookup for outlier flags
+    if attribute in pc.sor:
+        return pc.sor[attribute]
 
     raise ValueError(f"Attribute {attribute} not found in point clouds.")
