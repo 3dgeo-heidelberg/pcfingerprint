@@ -11,6 +11,15 @@ from plotly.subplots import make_subplots
 from jinja2 import Template
 import pcfingerprint
 from pcfingerprint.utils import subsample_points, _validate_classes
+from pcfingerprint.vis_common import (
+    prepare_attribute_data,
+    plot_grid_layout,
+    prepare_distance_scatter_comp_data,
+    prepare_distance_scatter_ref_data,
+    histogram_bin_edges,
+    histogram_counts,
+    classification_color_mapping,
+)
 
 import logging
 
@@ -102,67 +111,6 @@ def write_html_with_linked_3d_camera(fig: go.Figure, file, **kwargs):
     fig.write_html(file, post_script=post_script, **kwargs)
 
 
-def plot_grid(num_plots):
-    """
-    Helper function to determine the number of rows and columns for subplots based on the number of plots.
-    """
-    ncols = 2 if num_plots <= 4 else 3
-    nrows = math.ceil(num_plots / ncols)
-    subplot_titles = [""] * (nrows * ncols)
-    subplot_titles[0] = "Reference Point Cloud"
-    for i in range(num_plots - 1):
-        subplot_titles[i + 1] = f"Comparison Point Cloud {i + 1}"
-
-    fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=subplot_titles)
-
-    return fig, nrows, ncols
-
-
-def plot_grid_3d(num_plots):
-    """
-    Helper function to determine the number of rows and columns for subplots based on the number of plots.
-    """
-    ncols = 2 if num_plots <= 4 else 3
-    nrows = math.ceil(num_plots / ncols)
-    subplot_titles = [""] * (nrows * ncols)
-    subplot_titles[0] = "Reference Point Cloud"
-    for i in range(num_plots - 1):
-        subplot_titles[i + 1] = f"Comparison Point Cloud {i + 1}"
-
-    fig = make_subplots(
-        rows=nrows,
-        cols=ncols,
-        subplot_titles=subplot_titles,
-        specs=[[{"type": "scatter3d"} for _ in range(ncols)] for _ in range(nrows)],
-    )
-
-    return fig, nrows, ncols
-
-
-def _histogram_bin_edges(values_list, bins: int) -> np.ndarray:
-    """Return shared histogram bin edges for multiple data series."""
-    arrays = [np.asarray(values) for values in values_list if values is not None]
-    if not arrays:
-        return np.linspace(0.0, 1.0, bins + 1)
-
-    combined = np.concatenate([array[np.isfinite(array)] for array in arrays])
-    if combined.size == 0:
-        return np.linspace(0.0, 1.0, bins + 1)
-
-    min_value = float(np.min(combined))
-    max_value = float(np.max(combined))
-    if min_value == max_value:
-        padding = 0.5 if min_value == 0 else max(abs(min_value) * 0.05, 0.5)
-        min_value -= padding
-        max_value += padding
-    # if data type of array is int, add padding to make sure the bin edges are at 0.5 intervals
-    elif np.issubdtype(combined.dtype, np.integer):
-        min_value -= 0.5
-        max_value += 0.5
-
-    return np.linspace(min_value, max_value, bins + 1)
-
-
 def _histogram_bar_trace(
     values,
     bin_edges: np.ndarray,
@@ -203,13 +151,8 @@ def _histogram_bar_trace(
 
 
 def _classification_color_mapping(values_list):
-    """Return discrete colorscale data for classification attributes."""
-    class_values = np.unique(
-        np.concatenate([np.asarray(values).ravel() for values in values_list])
-    )
-    colors = px.colors.qualitative.Set1
-    mapped_colors = [colors[i % len(colors)] for i in range(len(class_values))]
-
+    """Wrapper that returns a Plotly `colorscale` constructed from shared mapping."""
+    class_values, mapped_colors = classification_color_mapping(values_list)
     if len(mapped_colors) == 1:
         colorscale = [[0.0, mapped_colors[0]], [1.0, mapped_colors[0]]]
     else:
@@ -226,58 +169,56 @@ def _classification_color_mapping(values_list):
 def plot_3d_scatter(
     reference_pc, compare_pcs: list, attribute: str = None, max_n_points: int = 50_000
 ):
-    # only do subsampling if attributes is not voxel-based
-    if attribute not in reference_pc.voxel_features:
-        # subsample points if necessary
-        reference_pc, _ = subsample_points(reference_pc, max_n_points)
-        compare_pc_sub = [
-            subsample_points(compare_pc, max_n_points)
-            for i, compare_pc in enumerate(compare_pcs)
-        ]
-        compare_pcs, _ = zip(*compare_pc_sub)
 
-        reference_pc_pl = reference_pc.coords
-        compare_pc_pl = [compare_pc.coords for compare_pc in compare_pcs]
+    if attribute is None:
+        logger.info(
+            "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
+        )
+        attribute = "z"
+    logger.info(f"Generating 3D scatter plot colored by {attribute}...")
 
-        if attribute is None:
-            logger.info(
-                "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
-            )
-            attribute = "z"
-        logger.info(f"Generating 3D scatter plot colored by {attribute}...")
-    else:
-        # voxel-based: use centroid points for plotting but attribute values remain
-        # stored in voxel_features
-        reference_pc_pl = reference_pc.voxel_features[attribute][
-            1
-        ]  # closest_to_centroids
-        compare_pc_pl = [
-            compare_pc.voxel_features[attribute][1] for compare_pc in compare_pcs
-        ]
-
-    # get attribute data
-    reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
-        reference_pc, attribute
+    # prepare data and coords using the shared helper
+    (
+        reference_pc_pl,
+        compare_pc_pl,
+        reference_data,
+        compare_data,
+        vmin,
+        vmax,
+        class_values,
+        mapped_colors,
+    ) = prepare_attribute_data(
+        reference_pc, compare_pcs, attribute=attribute, max_n_points=max_n_points
     )
-    compare_data = [
-        pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
-        for compare_pc in compare_pcs
-    ]
-
     # determine plot grid based on inputs
-    fig, nrows, ncols = plot_grid_3d(len(compare_pcs) + 1)
+    total_plots = len(compare_pcs) + 1
+    nrows, ncols, subplot_titles = plot_grid_layout(total_plots)
+    fig = make_subplots(
+        rows=nrows,
+        cols=ncols,
+        subplot_titles=subplot_titles,
+        specs=[[{"type": "scatter3d"} for _ in range(ncols)] for _ in range(nrows)],
+    )
 
     # compute global vmin/vmax for a consistent color scale across subplots
     if attribute == "classification":
-        class_values, colorscale = _classification_color_mapping(
-            [reference_data, *compare_data]
-        )
+        # build colorscale for plotly from mapped colors
+        if class_values is None:
+            class_values, mapped_colors = classification_color_mapping(
+                [reference_data, *compare_data]
+            )
         reference_data = np.searchsorted(class_values, np.asarray(reference_data))
         compare_data = [
             np.searchsorted(class_values, np.asarray(data)) for data in compare_data
         ]
         vmin = 0
         vmax = max(len(class_values) - 1, 0)
+        colorscale = []
+        n_colors = len(mapped_colors)
+        for i, color in enumerate(mapped_colors):
+            start = i / n_colors
+            end = (i + 1) / n_colors
+            colorscale.extend([[start, color], [end, color]])
         colorbar = dict(
             title=attribute,
             tickmode="array",
@@ -285,12 +226,14 @@ def plot_3d_scatter(
             ticktext=[str(value) for value in class_values],
         )
     else:
+        # ensure vmin/vmax set by helper are used; otherwise attempt to infer
         try:
-            vmin = float(np.min(reference_data))
-            vmax = float(np.max(reference_data))
-            for data in compare_data:
-                vmin = min(vmin, float(np.min(data)))
-                vmax = max(vmax, float(np.max(data)))
+            if vmin is None or vmax is None:
+                vmin = float(np.min(reference_data))
+                vmax = float(np.max(reference_data))
+                for data in compare_data:
+                    vmin = min(vmin, float(np.min(data)))
+                    vmax = max(vmax, float(np.max(data)))
         except Exception:
             vmin = None
             vmax = None
@@ -349,6 +292,106 @@ def plot_3d_scatter(
     return fig
 
 
+def plot_3d_scatter_dist_ref(
+    pc, attribute_list: list, max_n_points: int = 50_000, vmax: float = None
+):
+    pc_pl, values, vmin, inferred_vmax = prepare_distance_scatter_ref_data(
+        pc, attribute_list, max_n_points=max_n_points
+    )
+    if vmax is not None:
+        inferred_vmax = vmax
+
+    nrows, ncols, subplot_titles = plot_grid_layout(
+        len(attribute_list), all_comparison=True
+    )
+    fig = make_subplots(
+        rows=nrows,
+        cols=ncols,
+        subplot_titles=subplot_titles,
+        specs=[[{"type": "scatter3d"} for _ in range(ncols)] for _ in range(nrows)],
+    )
+
+    colorscale = "Viridis"
+    colorbar = dict(title="Distance")
+
+    for i in range(len(attribute_list)):
+        row = i // ncols + 1
+        col = i % ncols + 1
+        fig.add_trace(
+            go.Scatter3d(
+                x=pc_pl[:, 0],
+                y=pc_pl[:, 1],
+                z=pc_pl[:, 2],
+                mode="markers",
+                marker=dict(
+                    size=2,
+                    color=values[i],
+                    colorscale=colorscale,
+                    cmin=vmin,
+                    cmax=inferred_vmax,
+                    opacity=0.8,
+                    colorbar=colorbar,
+                ),
+                name="Reference Point Cloud",
+            ),
+            row=row,
+            col=col,
+        )
+
+    fig.update_scenes(aspectmode="data")
+    fig.update_layout(template="plotly_white", showlegend=False)
+    return fig
+
+
+def plot_3d_scatter_dist_comp(
+    pc_list: list, attribute: str, max_n_points: int = 50_000, vmax: float = None
+):
+    pc_pl_list, values, vmin, inferred_vmax = prepare_distance_scatter_comp_data(
+        pc_list, attribute, max_n_points=max_n_points
+    )
+    if vmax is not None:
+        inferred_vmax = vmax
+
+    nrows, ncols, subplot_titles = plot_grid_layout(len(pc_list), all_comparison=True)
+    fig = make_subplots(
+        rows=nrows,
+        cols=ncols,
+        subplot_titles=subplot_titles,
+        specs=[[{"type": "scatter3d"} for _ in range(ncols)] for _ in range(nrows)],
+    )
+
+    colorscale = "Viridis"
+    colorbar = dict(title="Distance")
+
+    for i in range(len(pc_pl_list)):
+        row = i // ncols + 1
+        col = i % ncols + 1
+        fig.add_trace(
+            go.Scatter3d(
+                x=pc_pl_list[i][:, 0],
+                y=pc_pl_list[i][:, 1],
+                z=pc_pl_list[i][:, 2],
+                mode="markers",
+                marker=dict(
+                    size=2,
+                    color=values[i],
+                    colorscale=colorscale,
+                    cmin=vmin,
+                    cmax=inferred_vmax,
+                    opacity=0.8,
+                    colorbar=colorbar,
+                ),
+                name=f"Comparison Point Cloud {i + 1}",
+            ),
+            row=row,
+            col=col,
+        )
+
+    fig.update_scenes(aspectmode="data")
+    fig.update_layout(template="plotly_white", showlegend=False)
+    return fig
+
+
 def plot_histogram(
     reference_pc,
     compare_pcs: list,
@@ -388,7 +431,7 @@ def plot_histogram(
         pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
         for compare_pc in compare_pcs
     ]
-    bin_edges = _histogram_bin_edges([reference_data, *compare_data], bins)
+    bin_edges = histogram_bin_edges([reference_data, *compare_data], bins)
 
     if overlay:  # overlay histograms with transparency
         fig = go.Figure()
@@ -428,7 +471,8 @@ def plot_histogram(
     else:  # plot histograms side by side
         # determine plot grid based on inputs
         total_plots = len(compare_pcs) + 1
-        fig, nrows, ncols = plot_grid(total_plots)
+        nrows, ncols, subplot_titles = plot_grid_layout(total_plots)
+        fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=subplot_titles)
 
         # get max frequency to scale y-axis equally
         histnorm = "probability density" if normalize else None

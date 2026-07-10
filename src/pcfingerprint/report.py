@@ -323,6 +323,7 @@ def generate_report(
     compare_pcs: list,
     output_folder: str,
     attribute_list: list[str],
+    distance_list: list[str] = None,
     summary_statistics: bool = True,
     return_number_metrics: bool = False,
     class_distribution: bool = False,
@@ -341,6 +342,8 @@ def generate_report(
     :type output_folder: str
     :param attribute_list: Point attributes to analyze and visualize.
     :type attribute_list: list[str]
+    :param distance_list: Distance attributes to analyze and visualize, e.g. "c2c"
+    :type distance_list: list[str]
     :param summary_statistics: Whether to include summary statistics tables.
     :type summary_statistics: bool
     :param return_number_metrics: Whether to include return-number metrics.
@@ -405,7 +408,7 @@ def generate_report(
     block_content["section_overview"] = section
 
     # section for 3D scatter plot
-    if "3d_scatter" in visualizations:
+    if "3d_scatter" in visualizations and len(attribute_list) > 0:
         section = Section(section_title=f"3D Scatter Plot Comparison")
         scatter_tabs = Tabs()
         if len(attribute_list) == 0:
@@ -715,11 +718,15 @@ def generate_report(
 
         # compute class distribution metrics
         metrics_reference = stats.compute_class_distribution_metrics(
-            reference_pc.classification, target_classes=unique_classes, class_mapping=class_mapping
+            reference_pc.classification,
+            target_classes=unique_classes,
+            class_mapping=class_mapping,
         )
         metrics_compare = [
             stats.compute_class_distribution_metrics(
-                compare_pc.classification, target_classes=unique_classes, class_mapping=class_mapping
+                compare_pc.classification,
+                target_classes=unique_classes,
+                class_mapping=class_mapping,
             )
             for compare_pc in compare_pcs
         ]
@@ -752,6 +759,102 @@ def generate_report(
 
         section.add_content({"class_distribution_table": table})
         block_content["section_class_distribution_metrics"] = section
+
+    # section for distance metrics
+    if distance_list is not None and len(distance_list) > 0:
+        section = Section(section_title=f"Distance Metrics")
+        scatter_tabs_ref = Tabs()
+        scatter_tabs_comp = Tabs()
+        tab_content_scatter_ref = {}
+        tab_content_scatter_comp = {}
+
+        tab_categories = set([d.split("_")[0] for d in distance_list])
+
+        if vis_backend == "matplotlib":
+            for dist_category in tab_categories:
+                from pcfingerprint.vis_matplotlib import (
+                    plot_3d_scatter_dist_ref,
+                    plot_3d_scatter_dist_comp,
+                )
+
+                dist_ref = [
+                    d for d in distance_list if dist_category in d and "to-compare" in d
+                ]
+                dist_comp = f"{dist_category}_to-reference"
+
+                fig_ref = plot_3d_scatter_dist_ref(reference_pc, dist_ref, vmax=0.1)
+                fig_comp = plot_3d_scatter_dist_comp(compare_pcs, dist_comp, vmax=0.1)
+                ref_fig_file = (
+                    report.target_folder
+                    / IMG_FOLDER
+                    / Path(f"3d_scatter_{dist_comp.split('_')[0]}_ref.png")
+                )
+                comp_fig_file = (
+                    report.target_folder
+                    / IMG_FOLDER
+                    / Path(f"3d_scatter_{dist_comp.split('_')[0]}_comp.png")
+                )
+                fig_ref.savefig(ref_fig_file, format="png")
+                fig_comp.savefig(comp_fig_file, format="png")
+                plt.close(fig_ref)
+                plt.close(fig_comp)
+
+                tab_content_scatter_ref[dist_category] = MatplotlibFigure(
+                    image_path=ref_fig_file.relative_to(report.target_folder),
+                    caption=f"3D scatter plot of {dist_category} distances from reference to comparison point clouds",
+                )
+                tab_content_scatter_comp[dist_category] = MatplotlibFigure(
+                    image_path=comp_fig_file.relative_to(report.target_folder),
+                    caption=f"3D scatter plot of {dist_category} distances from comparison to reference point clouds",
+                )
+        elif vis_backend == "plotly":
+            for dist_category in tab_categories:
+                from pcfingerprint.vis_plotly import (
+                    plot_3d_scatter_dist_ref,
+                    plot_3d_scatter_dist_comp,
+                    write_html_with_linked_3d_camera,
+                )
+
+                dist_ref = [
+                    d for d in distance_list if dist_category in d and "to-compare" in d
+                ]
+                dist_comp = f"{dist_category}_to-reference"
+
+                fig_ref = plot_3d_scatter_dist_ref(reference_pc, dist_ref, vmax=0.1)
+                fig_comp = plot_3d_scatter_dist_comp(compare_pcs, dist_comp, vmax=0.1)
+                ref_fig_file = (
+                    report.target_folder
+                    / IMG_FOLDER
+                    / Path(f"3d_scatter_{dist_comp.split('_')[0]}_ref.html")
+                )
+                comp_fig_file = (
+                    report.target_folder
+                    / IMG_FOLDER
+                    / Path(f"3d_scatter_{dist_comp.split('_')[0]}_comp.html")
+                )
+                write_html_with_linked_3d_camera(fig_ref, ref_fig_file)
+                write_html_with_linked_3d_camera(fig_comp, comp_fig_file)
+
+                tab_content_scatter_ref[dist_category] = IFrameFigure(
+                    html_path=ref_fig_file.relative_to(report.target_folder),
+                    caption=f"3D scatter plot of {dist_category} distances from reference to comparison point clouds",
+                )
+                tab_content_scatter_comp[dist_category] = IFrameFigure(
+                    html_path=comp_fig_file.relative_to(report.target_folder),
+                    caption=f"3D scatter plot of {dist_category} distances from comparison to reference point clouds",
+                )
+        else:
+            raise NotImplementedError(
+                f"Visualization backend {vis_backend} not supported for distance metrics."
+            )
+
+        if len(tab_content_scatter_ref) > 0:
+            scatter_tabs_ref.add_tabs(tab_content_scatter_ref)
+            section.add_content({"distance_scatter_tabs_ref": scatter_tabs_ref})
+        if len(tab_content_scatter_comp) > 0:
+            scatter_tabs_comp.add_tabs(tab_content_scatter_comp)
+            section.add_content({"distance_scatter_tabs_comp": scatter_tabs_comp})
+        block_content["section_distance_metrics"] = section
 
     # section for return number metrics
     if return_number_metrics:

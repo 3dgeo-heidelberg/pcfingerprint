@@ -5,6 +5,15 @@ Module for visualisations on comparisons between point clouds.
 import matplotlib.pyplot as plt
 import pcfingerprint
 from pcfingerprint.utils import subsample_points, _validate_classes
+from pcfingerprint.vis_common import (
+    prepare_attribute_data,
+    plot_grid_layout,
+    prepare_distance_scatter_comp_data,
+    prepare_distance_scatter_ref_data,
+    histogram_bin_edges,
+    histogram_counts,
+    classification_color_mapping,
+)
 import numpy as np
 import logging
 
@@ -52,40 +61,25 @@ def plot_3d_scatter(
     :return: The matplotlib figure object containing the 3D scatter plot.
     :rtype: matplotlib.figure.Figure
     """
-    # only do subsampling if attributes is not voxel-based
-    if attribute not in reference_pc.voxel_features:
-        # subsample points if necessary
-        reference_pc, _ = subsample_points(reference_pc, max_n_points)
-        compare_pc_sub = [
-            subsample_points(compare_pc, max_n_points)
-            for i, compare_pc in enumerate(compare_pcs)
-        ]
-        compare_pcs, _ = zip(*compare_pc_sub)
-        reference_pc_pl = reference_pc.coords
-        compare_pc_pl = [compare_pc.coords for compare_pc in compare_pcs]
-
-        if attribute is None:
-            logger.info(
-                "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
-            )
-            attribute = "z"
-        logger.info(f"Generating 3D scatter plot colored by {attribute}...")
-    else:
-        reference_pc_pl = reference_pc.voxel_features[attribute][
-            1
-        ]  # closest_to_centroids
-        compare_pc_pl = [
-            compare_pc.voxel_features[attribute][1] for compare_pc in compare_pcs
-        ]  # closest_to_centroids
-
-    # get attribute data
-    reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
-        reference_pc, attribute
+    (
+        reference_pc_pl,
+        compare_pc_pl,
+        reference_data,
+        compare_data,
+        vmin,
+        vmax,
+        class_values,
+        mapped_colors,
+    ) = prepare_attribute_data(
+        reference_pc, compare_pcs, attribute=attribute, max_n_points=max_n_points
     )
-    compare_data = [
-        pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
-        for compare_pc in compare_pcs
-    ]
+
+    if attribute is None:
+        logger.info(
+            "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
+        )
+        attribute = "z"
+    logger.info(f"Generating 3D scatter plot colored by {attribute}...")
 
     if overlay:
         # overlay all point clouds in one plot - only really makes sense for two point clouds
@@ -125,20 +119,9 @@ def plot_3d_scatter(
         )
         plt.legend()
     else:
-        if attribute is None:
-            logger.info(
-                "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
-            )
-            attribute = "z"
-        logger.info(f"Generating 3D scatter plot colored by {attribute}...")
-
         # determine plot grid based on inputs
-        if len(compare_pcs) == 1:
-            nrows, ncols = 1, 2
-        elif len(compare_pcs) <= 3:
-            nrows, ncols = 2, 2
-        elif len(compare_pcs) <= 5:
-            nrows, ncols = 2, 3
+        total_plots = len(compare_pcs) + 1
+        nrows, ncols, _ = plot_grid_layout(total_plots)
         fig, axs = plt.subplots(
             nrows,
             ncols,
@@ -152,13 +135,28 @@ def plot_3d_scatter(
         if nrows == 1:
             axs = axs.reshape(1, -1)
 
-        # compute global vmin and vmax for color scale
-        vmin = min(reference_data.min(), min([data.min() for data in compare_data]))
-        vmax = max(reference_data.max(), max([data.max() for data in compare_data]))
+        # compute vmin/vmax (fall back to prepared values)
+        vmin = (
+            vmin
+            if vmin is not None
+            else min(reference_data.min(), min([data.min() for data in compare_data]))
+        )
+        vmax = (
+            vmax
+            if vmax is not None
+            else max(reference_data.max(), max([data.max() for data in compare_data]))
+        )
 
         # viridis for most attributes, but use a different colorscale for classification to better distinguish classes
         if attribute == "classification":
-            cmap = plt.get_cmap("Set1", np.unique(reference_data).size)
+            cmap = plt.get_cmap(
+                "Set1",
+                (
+                    class_values.size
+                    if class_values is not None
+                    else np.unique(reference_data).size
+                ),
+            )
         else:
             cmap = "viridis"
 
@@ -176,13 +174,7 @@ def plot_3d_scatter(
         axs[0, 0].set_title("Reference Point Cloud")
         style_axis(axs[0, 0])
         # equal scaling
-        axs[0, 0].set_box_aspect(
-            (
-                np.ptp(reference_pc_pl[:, 0]),
-                np.ptp(reference_pc_pl[:, 1]),
-                np.ptp(reference_pc_pl[:, 2]),
-            )
-        )
+        axs[0, 0].set_aspect("equal")
         for i in range(len(compare_pcs)):
             row = (i + 1) // ncols
             col = (i + 1) % ncols
@@ -199,13 +191,7 @@ def plot_3d_scatter(
             axs[row, col].set_title(f"Comparison Point Cloud {i+1}")
             style_axis(axs[row, col])
             # equal scaling
-            axs[row, col].set_box_aspect(
-                (
-                    np.ptp(compare_pc_pl[i][:, 0]),
-                    np.ptp(compare_pc_pl[i][:, 1]),
-                    np.ptp(compare_pc_pl[i][:, 2]),
-                )
-            )
+            axs[row, col].set_aspect("equal")
         # colorbar to the right side spanning all rows
         if attribute == "classification":
             cbar = fig.colorbar(
@@ -217,6 +203,143 @@ def plot_3d_scatter(
         # hide any unused subplots
         if len(compare_pcs) + 1 < nrows * ncols:
             axs[row, -1].axis("off")
+    return fig
+
+
+def plot_3d_scatter_dist_ref(
+    pc, attribute_list: list, max_n_points: int = 50_000, vmax: float = None
+):
+    """
+    Create a 3D scatter plot of the reference point cloud, colored by the specified distance attributes.
+
+    :param pc: PointCloud object representing the reference point cloud
+    :param attribute_list: List of distance attributes to color by
+    :type attribute_list: list
+    :param max_n_points: Maximum number of points to plot. If the point cloud has more points, it will be randomly subsampled to this number for visualization purposes.
+    :type max_n_points: int
+    :param vmax: Maximum value for the color scale. If None, it will be determined from the data.
+    :type vmax: float
+
+    :return: The matplotlib figure object containing the 3D scatter plot.
+    :rtype: matplotlib.figure.Figure
+    """
+    pc_pl, values, vmin, inferred_vmax = prepare_distance_scatter_ref_data(
+        pc, attribute_list, max_n_points=max_n_points
+    )
+    if vmax is not None:
+        inferred_vmax = vmax
+
+    colorscale = "viridis"
+
+    # determine plot grid based on number of attributes
+    if len(attribute_list) == 1:
+        nrows, ncols = 1, 1
+    elif len(attribute_list) <= 4:
+        nrows, ncols = 2, 2
+    elif len(attribute_list) <= 6:
+        nrows, ncols = 2, 3
+    fig, axs = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(14, 9),
+        dpi=100,
+        subplot_kw={"projection": "3d"},
+        layout="constrained",
+    )
+    # Ensure axs is always 2D for consistent indexing
+    if nrows == 1:
+        axs = axs.reshape(1, -1)
+
+    for i, attribute in enumerate(attribute_list):
+        row = i // ncols
+        col = i % ncols
+        p = axs[row, col].scatter(
+            pc_pl[:, 0],
+            pc_pl[:, 1],
+            pc_pl[:, 2],
+            c=values[i],
+            cmap=colorscale,
+            s=0.2,
+            vmin=vmin,
+            vmax=inferred_vmax,
+        )
+        style_axis(axs[row, col])
+        axs[row, col].set_title(f"Reference Point Cloud - {attribute}")
+        axs[row, col].set_aspect("equal")
+    # colorbar to the right side spanning all rows
+    fig.colorbar(p, label="Distance", ax=axs[:, :], location="right")
+    # hide any unused subplots
+    if len(attribute_list) < nrows * ncols:
+        axs[row, -1].axis("off")
+    return fig
+
+
+def plot_3d_scatter_dist_comp(
+    pc_list: list, attribute: str, max_n_points: int = 50_000, vmax: float = None
+):
+    """
+    Create a 3D scatter plot of the comparison point clouds, colored by the specified distance attribute.
+
+    :param pc_list: List of PointCloud objects representing the comparison point clouds
+    :param attribute: Name of the distance attribute to color by
+    :type attribute: str
+    :param max_n_points: Maximum number of points to plot for each point cloud. If a point cloud has more points, it will be randomly subsampled to this number for visualization purposes.
+    :type max_n_points: int
+    :param vmax: Maximum value for the color scale. If None, it will be determined from the data.
+    :type vmax: float
+
+    :return: The matplotlib figure object containing the 3D scatter plot.
+    :rtype: matplotlib.figure.Figure
+    """
+    pc_pl_list, values, vmin, inferred_vmax = prepare_distance_scatter_comp_data(
+        pc_list, attribute, max_n_points=max_n_points
+    )
+    if vmax is not None:
+        inferred_vmax = vmax
+
+    colorscale = "viridis"
+
+    # determine plot grid based on number of comparison point clouds
+    if len(pc_list) == 1:
+        nrows, ncols = 1, 1
+    elif len(pc_list) <= 4:
+        nrows, ncols = 2, 2
+    elif len(pc_list) <= 6:
+        nrows, ncols = 2, 3
+    fig, axs = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(14, 9),
+        dpi=100,
+        subplot_kw={"projection": "3d"},
+        layout="constrained",
+    )
+    # Ensure axs is always 2D for consistent indexing
+    if nrows == 1:
+        axs = axs.reshape(1, -1)
+
+    for i in range(len(pc_pl_list)):
+        row = i // ncols
+        col = i % ncols
+        p = axs[row, col].scatter(
+            pc_pl_list[i][:, 0],
+            pc_pl_list[i][:, 1],
+            pc_pl_list[i][:, 2],
+            c=values[i],
+            cmap=colorscale,
+            s=0.2,
+            vmin=vmin,
+            vmax=inferred_vmax,
+        )
+        style_axis(axs[row, col])
+        axs[row, col].set_title(f"Comparison Point Cloud {i+1} - {attribute}")
+        axs[row, col].set_aspect("equal")
+
+    # colorbar to the right side spanning all rows
+    fig.colorbar(p, label="Distance", ax=axs[:, :], location="right")
+    # hide any unused subplots
+    if len(pc_list) < nrows * ncols:
+        axs[row, -1].axis("off")
     return fig
 
 
