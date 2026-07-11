@@ -935,4 +935,7 @@ def get_attribute_data(pc: PointCloud, attribute: str):
         feat = pc.voxel_features[attribute]
         return feat[0] if isinstance(feat, tuple) and len(feat) > 0 else feat
 
+    if attribute in pc.c2c:
+        return pc.c2c[attribute]
+
     raise ValueError(f"Attribute {attribute} not found in point clouds.")
