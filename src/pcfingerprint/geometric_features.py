@@ -101,10 +101,8 @@ def compute_geom_feat_jakteristics(
         feature_names=feature_names,
         max_k_neighbors=max_knn,
     )
-    if len(feature_names) == 1:
-        feats = [feats]
     for i, f_name in enumerate(feature_names):
-        point_cloud.geometric_features[f"{f_name}_r{radius}"] = feats[i].reshape(-1)
+        point_cloud.geometric_features[f"{f_name}_r{radius}"] = feats[:, i].reshape(-1)
 
 
 def compute_geom_feat_pgeof(
@@ -162,10 +160,8 @@ def compute_geom_feat_pgeof(
         max_knn=max_knn,
         selected_features=sel_feats,
     )
-    if len(feature_names) == 1:
-        feats = [feats]
     for i, f_name in enumerate(feature_names):
-        point_cloud.geometric_features[f"{f_name}_r{radius}"] = feats[i].reshape(-1)
+        point_cloud.geometric_features[f"{f_name}_r{radius}"] = feats[:, i].reshape(-1)
 
 
 ####################################### Voxel-based computations #######################################
