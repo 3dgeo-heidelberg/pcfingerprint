@@ -516,10 +516,10 @@ def plot_histogram_per_class(
     for hist_reference_class, hist_compare_class in zip(hists_reference, hists_compare):
 
         fig = plot_histogram(
-            hist_reference_class,
-            hist_compare_class,
-            attribute,
-            bins,
+            compare_pcs=hist_compare_class,
+            attribute=attribute,
+            reference_pc=hist_reference_class,
+            bins=bins,
             overlay=True,
             normalize=normalize,
         )
