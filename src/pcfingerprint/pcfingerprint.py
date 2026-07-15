@@ -452,16 +452,17 @@ class PointCloudPair:
             vapc_list[1:],
         )  # return reference VAPC and list of compare VAPCs
 
-    def compute_c2c_distances(self, max_distance: float = None):
+    def compute_c2c_distances(self, max_distance: float = np.inf):
         """
         Compute cloud-to-cloud distances between the reference and each comparison point cloud (both directions).
         The distances are stored in
         - the c2c attribute of the reference point cloud (dictionary with arrays of distances to each comparison point cloud)
         - the c2c attribute of each comparison point cloud (dictionary with a single array of distances to the reference point cloud)
 
-        :param max_distance: Optional maximum distance threshold. Distances greater than this value will be set to NaN. If None, no threshold is applied.
+        :param max_distance: Optional maximum distance threshold. Distances greater than this value will be set to NaN. Default: np.inf, i.e., no threshold is applied.
         :type max_distance: float, optional
         """
+
         # create epochs for the point clouds
         reference_epoch = py4dgeo.Epoch(cloud=self.reference.coords)
 
