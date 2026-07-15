@@ -342,9 +342,9 @@ def plot_3d_scatter_dist_comp(
 
 
 def plot_histogram(
-    reference_pc,
     compare_pcs: list,
     attribute: str,
+    reference_pc=None,
     bins: int = 100,
     overlay: bool = False,
     normalize: bool = False,
@@ -356,6 +356,8 @@ def plot_histogram(
     :param compare_pcs: List of PointCloud objects representing the comparison point clouds
     :param attribute: Name of the attribute to plot
     :type attribute: str
+    :param overlay: Whether to overlay the histograms (True) or plot them side by side (False)
+    :type overlay: bool
     :param bins: Number of bins for the histogram
     :type bins: int
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
@@ -368,31 +370,39 @@ def plot_histogram(
         ylabel = "Frequency"
 
     # get attribute data
-    reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
-        reference_pc, attribute
-    )
+    all_data = []
+    if reference_pc:
+        reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
+            reference_pc, attribute
+        )
+        all_data.append(reference_data)
+    else:
+        reference_data = None
     compare_data = [
         pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
         for compare_pc in compare_pcs
     ]
+    all_data.extend(compare_data)
+    total_n_plots = len(all_data)
 
     if attribute == "classification":
-        bins = np.unique(reference_pc.classification).size + 1
+        bins = np.unique(reference_pc.classification).size
 
     if overlay:  # overlay histograms with transparency
         fig, ax = plt.subplots(figsize=(8, 6))
-        n_colours = len(compare_pcs) + 1
+        n_colours = total_n_plots
         colors = plt.cm.get_cmap("tab10", n_colours)
-        # reference world
-        ax.hist(
-            reference_data,
-            bins=bins,
-            color="blue",
-            alpha=0.7,
-            label="Reference Point Cloud",
-            histtype="step",
-            density=normalize,
-        )
+        # reference
+        if reference_data is not None:
+            ax.hist(
+                reference_data,
+                bins=bins,
+                color="blue",
+                alpha=0.7,
+                label="Reference Point Cloud",
+                histtype="step",
+                density=normalize,
+            )
         # comparison
         for i, data in enumerate(compare_data):
             color = colors(i + 1)
@@ -428,12 +438,8 @@ def plot_histogram(
         return plt.gcf()
     else:  # plot histograms side by side
         # determine plot grid based on inputs
-        if len(compare_pcs) == 1:
-            nrows, ncols = 1, 2
-        elif len(compare_pcs) <= 3:
-            nrows, ncols = 2, 2
-        elif len(compare_pcs) <= 5:
-            nrows, ncols = 2, 3
+        has_reference = reference_data is not None
+        nrows, ncols = plot_grid_layout(total_n_plots, all_comparison=not has_reference)
         fig, axs = plt.subplots(nrows, ncols, figsize=(12, 5))
 
         # Ensure axs is always 2D for consistent indexing
@@ -442,24 +448,26 @@ def plot_histogram(
 
         # get max frequency to scale y-axis equally
         max_freq = 0
-        max_freq = max(max_freq, max(np.histogram(reference_data, bins=bins)[0]))
+        if reference_data:
+            max_freq = max(max_freq, max(np.histogram(reference_data, bins=bins)[0]))
         for data in compare_data:
             max_freq = max(max_freq, max(np.histogram(data, bins=bins)[0]))
         # ax 0 is always reference pc
-        axs[0, 0].hist(
-            reference_data, bins=bins, color="blue", alpha=0.7, density=normalize
-        )
-        axs[0, 0].set_title("Reference Point Cloud")
-        axs[0, 0].set_xlabel(attribute)
-        axs[0, 0].set_ylabel(ylabel)
-        # add minor ticks
-        axs[0, 0].minorticks_on()
-        if not normalize:
-            axs[0, 0].set_ylim(0, max_freq * 1.1)
-        axs[0, 0].set_axisbelow(True)
+        if has_reference:
+            axs[0, 0].hist(
+                reference_data, bins=bins, color="blue", alpha=0.7, density=normalize
+            )
+            axs[0, 0].set_title("Reference Point Cloud")
+            axs[0, 0].set_xlabel(attribute)
+            axs[0, 0].set_ylabel(ylabel)
+            # add minor ticks
+            axs[0, 0].minorticks_on()
+            if not normalize:
+                axs[0, 0].set_ylim(0, max_freq * 1.1)
+            axs[0, 0].set_axisbelow(True)
         for i, data in enumerate(compare_data):
-            row = (i + 1) // ncols
-            col = (i + 1) % ncols
+            row = (i + has_reference) // ncols
+            col = (i + has_reference) % ncols
             axs[row, col].hist(
                 data, bins=bins, color="orange", alpha=0.7, density=normalize
             )

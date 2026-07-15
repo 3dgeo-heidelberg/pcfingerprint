@@ -377,9 +377,9 @@ def plot_3d_scatter_dist_comp(
 
 
 def plot_histogram(
-    reference_pc,
     compare_pcs: list,
-    attribute: str,
+    attribute: str | list[str],
+    reference_pc=None,
     bins: int = 100,
     overlay: bool = False,
     normalize: bool = False,
@@ -387,12 +387,16 @@ def plot_histogram(
     """
     Plot histograms of an attribute for reference and comparison point clouds side by side.
 
-    :param reference_pc: PointCloud object representing the reference point cloud
     :param compare_pcs: List of PointCloud objects representing the comparison point clouds
-    :param attribute: Name of the attribute to plot
-    :type attribute: str
+    :type compare_pcs: list
+    :param attribute: Name of the attribute to plot or list of names of attributes to plot per point cloud
+    :type attribute: str or list
+    :param reference_pc: PointCloud object representing the reference point cloud
+    :type compare_pcs: PointCloud
     :param bins: Number of bins for the histogram
     :type bins: int
+    :param overlay: Whether to overlay the histograms.
+    :type overlay: bool
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
@@ -408,34 +412,51 @@ def plot_histogram(
         bins = np.unique(reference_pc.classification).size
 
     # get attribute data
-    reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
-        reference_pc, attribute
-    )
-    compare_data = [
-        pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
-        for compare_pc in compare_pcs
-    ]
-    bin_edges = histogram_bin_edges([reference_data, *compare_data], bins)
+    all_data = []
+    if reference_pc:
+        reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
+            reference_pc, attribute
+        )
+        all_data.append(reference_data)
+    else:
+        reference_data = None
+
+    if isinstance(attribute, str):
+        compare_data = [
+            pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
+            for compare_pc in compare_pcs
+        ]
+        attr_name = attribute
+    elif isinstance(attribute, list):
+        compare_data = [
+            pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attr)
+            for compare_pc in compare_pcs
+            for attr in attribute
+        ]
+        attr_name = attribute[0].split("_")[0]
+    all_data.extend(compare_data)
+    bin_edges = histogram_bin_edges(all_data, bins)
 
     if overlay:  # overlay histograms with transparency
         fig = go.Figure()
-        n_colours = len(compare_pcs) + 1
+        n_colours = len(all_data)
         colors = (
             px.colors.qualitative.Plotly
             if n_colours <= len(px.colors.qualitative.Plotly)
             else px.colors.qualitative.Dark24
         )
         # reference
-        fig.add_trace(
-            _histogram_bar_trace(
-                reference_data,
-                bin_edges,
-                name="Reference Point Cloud",
-                marker_color=colors[0],
-                opacity=0.8,
-                histnorm=histnorm,
+        if reference_data is not None:
+            fig.add_trace(
+                _histogram_bar_trace(
+                    reference_data,
+                    bin_edges,
+                    name="Reference Point Cloud",
+                    marker_color=colors[0],
+                    opacity=0.8,
+                    histnorm=histnorm,
+                )
             )
-        )
         # comparison
         for i, data in enumerate(compare_data):
             color = colors[i + 1]
@@ -449,44 +470,46 @@ def plot_histogram(
                     histnorm=histnorm,
                 )
             )
-        fig.update_layout(barmode="overlay", xaxis_title=attribute, yaxis_title=ylabel)
+        fig.update_layout(barmode="overlay", xaxis_title=attr_name, yaxis_title=ylabel)
 
         return fig
     else:  # plot histograms side by side
         # determine plot grid based on inputs
-        total_plots = len(compare_pcs) + 1
+        total_plots = len(all_data)
+        has_ref = reference_data != None
         nrows, ncols, subplot_titles = plot_grid_layout(total_plots)
         fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=subplot_titles)
 
         # get max frequency to scale y-axis equally
         histnorm = "probability density" if normalize else None
         max_freq = 0
-        for data in [reference_data, *compare_data]:
+        for data in all_data:
             counts, _ = np.histogram(data, bins=bin_edges)
             max_freq = max(max_freq, float(np.max(counts)) if counts.size else 0)
 
-        # ax 0 is always reference pc
-        fig.add_trace(
-            _histogram_bar_trace(
-                reference_data,
-                bin_edges,
-                name="Reference Point Cloud",
-                marker_color="blue",
-                opacity=0.7,
-                histnorm=histnorm,
-                showlegend=False,
-            ),
-            row=1,
-            col=1,
-        )
-        fig.update_xaxes(title_text="", row=1, col=1)
-        fig.update_yaxes(title_text=ylabel, row=1, col=1)
-        if not normalize:
-            fig.update_yaxes(range=[0, max_freq * 1.1], row=1, col=1)
+        # ax 0 is always reference pc - if present
+        if reference_data is not None:
+            fig.add_trace(
+                _histogram_bar_trace(
+                    reference_data,
+                    bin_edges,
+                    name="Reference Point Cloud",
+                    marker_color="blue",
+                    opacity=0.7,
+                    histnorm=histnorm,
+                    showlegend=False,
+                ),
+                row=1,
+                col=1,
+            )
+            fig.update_xaxes(title_text="", row=1, col=1)
+            fig.update_yaxes(title_text=ylabel, row=1, col=1)
+            if not normalize:
+                fig.update_yaxes(range=[0, max_freq * 1.1], row=1, col=1)
         for i, data in enumerate(compare_data):
-            subplot_index = i + 1
-            row = subplot_index // ncols + 1
-            col = subplot_index % ncols + 1
+            subplot_index = i + has_ref
+            row = subplot_index // ncols + has_ref
+            col = subplot_index % ncols + has_ref
             fig.add_trace(
                 _histogram_bar_trace(
                     data,

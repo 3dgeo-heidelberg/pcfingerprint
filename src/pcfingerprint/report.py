@@ -556,9 +556,9 @@ def generate_report(
                 imgs = []
                 for norm, norm_str in ((False, "frequency"), (True, "density")):
                     fig = plot_histogram(
-                        reference_pc,
                         compare_pcs,
                         attribute,
+                        reference_pc=reference_pc,
                         overlay=overlay,
                         normalize=norm,
                     )
@@ -586,9 +586,9 @@ def generate_report(
                 figs = []
                 for norm, norm_str in ((False, "frequency"), (True, "density")):
                     fig = plot_histogram(
-                        reference_pc,
                         compare_pcs,
                         attribute,
+                        reference_pc,
                         overlay=overlay,
                         normalize=norm,
                     )
@@ -763,7 +763,6 @@ def generate_report(
     # section for distance metrics
     if distance_list is not None and len(distance_list) > 0:
         section = Section(section_title=f"Distance Metrics")
-        # TODO: Add histogram visualizations for distance metrics
 
         tab_categories = set([d.split("_")[0] for d in distance_list])
         if "3d_scatter_distances" in visualizations:
@@ -864,12 +863,167 @@ def generate_report(
                 scatter_tabs_comp.add_tabs(tab_content_scatter_comp)
                 section.add_content({"distance_scatter_tabs_comp": scatter_tabs_comp})
 
+        if "histogram" in visualizations or "histogram_overlay" in visualizations:
+            dists_tab_hists_ref = Tabs()
+            dists_tab_hists_comp = Tabs()
+            tab_content_hists_ref = {}
+            tab_content_hists_comp = {}
+
+            if "histogram_overlay" in visualizations:
+                overlay = True
+            else:
+                overlay = False
+
+            # generate histogram plot
+            if vis_backend == "matplotlib":
+                from pcfingerprint.vis_matplotlib import plot_histogram
+
+                for dist_category in tab_categories:
+
+                    dist_ref = [
+                        d
+                        for d in distance_list
+                        if dist_category in d and "to-compare" in d
+                    ]
+                    dist_comp = f"{dist_category}_to-reference"
+
+                imgs = []
+                for norm, norm_str in ((False, "frequency"), (True, "density")):
+                    fig = plot_histogram(
+                        compare_pcs,
+                        attribute=dist_comp,
+                        reference_pc=None,
+                        overlay=overlay,
+                        normalize=norm,
+                    )
+                    img_file = (
+                        report.target_folder
+                        / IMG_FOLDER
+                        / f"{dist_comp}_histogram_{norm_str}.png"
+                    )
+                    fig.savefig(img_file, format="png")
+                    plt.close(fig)
+                    imgs.append((norm_str, img_file))
+                image_labels = [label for label, _ in imgs]
+                image_names = [
+                    path.relative_to(report.target_folder) for _, path in imgs
+                ]
+                figure_selection = FigureSelection(
+                    figure_paths=image_names,
+                    figure_labels=image_labels,
+                    caption=f"Histogram of {dist_category} (compare to reference)",
+                )
+                tab_content_hists_comp[dist_comp] = figure_selection
+                # same for reference to comparison
+                pcs = [reference_pc] * len(dist_ref)
+                for norm, norm_str in ((False, "frequency"), (True, "density")):
+                    fig = plot_histogram(
+                        pcs,
+                        attribute=dist_ref,
+                        reference_pc=None,
+                        overlay=overlay,
+                        normalize=norm,
+                    )
+                    img_file = (
+                        report.target_folder
+                        / IMG_FOLDER
+                        / f"{dist_comp}_histogram_{norm_str}.png"
+                    )
+                    fig.savefig(img_file, format="png")
+                    plt.close(fig)
+                    imgs.append((norm_str, img_file))
+                image_labels = [label for label, _ in imgs]
+                image_names = [
+                    path.relative_to(report.target_folder) for _, path in imgs
+                ]
+                figure_selection = FigureSelection(
+                    figure_paths=image_names,
+                    figure_labels=image_labels,
+                    caption=f"Histogram of {dist_category} (reference to compare)",
+                )
+                tab_content_hists_ref[dist_comp] = figure_selection
+            elif vis_backend == "plotly":
+                from pcfingerprint.vis_plotly import plot_histogram
+
+                for dist_category in tab_categories:
+
+                    dist_ref = [
+                        d
+                        for d in distance_list
+                        if dist_category in d and "to-compare" in d
+                    ]
+                    dist_comp = f"{dist_category}_to-reference"
+
+                figs = []
+                for norm, norm_str in ((False, "frequency"), (True, "density")):
+                    fig = plot_histogram(
+                        compare_pcs,
+                        attribute=dist_comp,
+                        reference_pc=None,
+                        overlay=overlay,
+                        normalize=norm,
+                    )
+                    fig_file = (
+                        report.target_folder
+                        / IMG_FOLDER
+                        / Path(f"{dist_comp}_histogram_{norm_str}.html")
+                    )
+                    fig.write_html(fig_file, config={"responsive": True})
+                    figs.append((norm_str, fig_file))
+                figure_selection = FigureSelection(
+                    figure_paths=[
+                        path.relative_to(report.target_folder) for _, path in figs
+                    ],
+                    figure_labels=[label for label, _ in figs],
+                    render_mode="iframe",
+                    caption=f"Histogram of {dist_comp} (compare to reference)",
+                )
+                tab_content_hists_comp[attribute] = figure_selection
+                pcs = [reference_pc] * len(dist_ref)
+                for norm, norm_str in ((False, "frequency"), (True, "density")):
+                    fig = plot_histogram(
+                        pcs,
+                        attribute=dist_ref,
+                        reference_pc=None,
+                        overlay=overlay,
+                        normalize=norm,
+                    )
+                    fig_file = (
+                        report.target_folder
+                        / IMG_FOLDER
+                        / Path(f"{dist_ref}_histogram_{norm_str}.html")
+                    )
+                    fig.write_html(fig_file, config={"responsive": True})
+                    figs.append((norm_str, fig_file))
+                figure_selection = FigureSelection(
+                    figure_paths=[
+                        path.relative_to(report.target_folder) for _, path in figs
+                    ],
+                    figure_labels=[label for label, _ in figs],
+                    render_mode="iframe",
+                    caption=f"Histogram of {dist_comp} (reference to compare)",
+                )
+                tab_content_hists_ref[attribute] = figure_selection
+            else:
+                # other backends not supported yet
+                raise NotImplementedError(
+                    f"Visualization backend {vis_backend} not supported for histogram plot."
+                )
+
+            dists_tab_hists_ref.add_tabs(tab_content_hists_ref)
+            dists_tab_hists_comp.add_tabs(tab_content_hists_comp)
+            if len(tab_content_hists_ref) > 0 and len(tab_content_hists_comp) > 0:
+                dists_tab_hists_ref.add_tabs(tab_content_hists_ref)
+                dists_tab_hists_comp.add_tabs(tab_content_hists_comp)
+                section.add_content({"distance_hist_tabs_ref": dists_tab_hists_ref})
+                section.add_content({"distance_hist_tabs_comp": dists_tab_hists_comp})
+
         if summary_statistics:
             summary_tabs_dist = Tabs()
             tab_content_summary_dist = {}
             for dist_category in tab_categories:
                 logger.info(
-                    f"Computing summary statistics for distannce category '{dist_category}'..."
+                    f"Computing summary statistics for distance category '{dist_category}'..."
                 )
                 # reference to compare
                 stats_dist = {}
