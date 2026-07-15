@@ -325,6 +325,7 @@ def generate_report(
     attribute_list: list[str],
     distance_list: list[str] = None,
     summary_statistics: bool = True,
+    outlier_statistics: bool = False,
     return_number_metrics: bool = False,
     class_distribution: bool = False,
     class_mapping: Optional[dict[int, str]] = None,
@@ -360,7 +361,8 @@ def generate_report(
     :return: None
     :rtype: None
     """
-    Path(output_folder).mkdir(parents=True, exist_ok=True)
+    output_folder = Path(output_folder)
+    output_folder.mkdir(parents=True, exist_ok=True)
 
     if summary_statistics or return_number_metrics:
         from pcfingerprint import stats
@@ -704,6 +706,67 @@ def generate_report(
         and len(attr_tab_hists_per_class.tabs) == 0
     ):
         block_content[f"section_attribute_comparisons"] = section
+
+    if outlier_statistics:
+        section = Section(section_title=f"Outlier Statistics")
+        logger.info(f"Computing outlier statistics...")
+        # compute outlier statistics
+        if len(reference_pc.sor.keys()) == 0 or any(
+            len(compare_pc.sor.keys()) == 0 for compare_pc in compare_pcs
+        ):
+            logger.warning(
+                "Outlier statistics requested but SOR outlier flags not computed for all point clouds. Skipping outlier statistics."
+            )
+        else:
+            if len(reference_pc.sor.keys()) > 1:
+                logger.warning("Multiple SOR outlier flags found. Using the first one.")
+            outliers_reference = reference_pc.sor[
+                list(reference_pc.sor.keys())[0]
+            ].astype(bool)
+            outliers_compare = [
+                compare_pc.sor[list(compare_pc.sor.keys())[0]].astype(bool)
+                for compare_pc in compare_pcs
+            ]
+            num_outliers_reference = np.sum(outliers_reference)
+            num_outliers_compare = [np.sum(outliers) for outliers in outliers_compare]
+
+            # create a pandas dataframe which contains number of inliers and outliers and percentage of outliers in each point cloud
+            outlier_df = pd.DataFrame(
+                {
+                    "Point Cloud": ["Reference"]
+                    + [f"Comparison {i+1}" for i in range(len(compare_pcs))],
+                    "Number of Inliers": [np.sum(~outliers_reference)]
+                    + [np.sum(~outliers) for outliers in outliers_compare],
+                    "Number of Outliers": [num_outliers_reference]
+                    + [num_outliers for num_outliers in num_outliers_compare],
+                    "Percentage of Outliers": [
+                        num_outliers_reference / reference_pc.coords.shape[0]
+                    ]
+                    + [
+                        num_outliers / compare_pc.coords.shape[0]
+                        for num_outliers, compare_pc in zip(
+                            num_outliers_compare, compare_pcs
+                        )
+                    ],
+                }
+            )
+            # add a thousand separator to the number of inliers and outliers columns
+            outlier_df["Number of Inliers"] = outlier_df["Number of Inliers"].map(
+                lambda x: f"{int(x):,}"
+            )
+            outlier_df["Number of Outliers"] = outlier_df["Number of Outliers"].map(
+                lambda x: f"{int(x):,}"
+            )
+            # format the percentage of outliers as a percentage with 2 decimal places
+            outlier_df["Percentage of Outliers"] = outlier_df[
+                "Percentage of Outliers"
+            ].map(lambda x: f"{x:.2%}")
+            table = DataFrameTable(
+                outlier_df,
+                caption="Statistical Outlier Removal (SOR) Outlier Statistics",
+            )
+            section.add_content({"outlier_table": table})
+            block_content["section_outlier_statistics"] = section
 
     if class_distribution:
         section = Section(section_title=f"Class Distribution Metrics")

@@ -26,6 +26,7 @@ pc_pair.compute_voxel_features(
 pc_pair.compute_voxel_features(
     feature_names=["linearity", "planarity"], voxel_size=0.05
 )
+pc_pair.compute_statistical_outlier_removal(k=8, std_dev_multiplier=1.0)
 
 # generate project report
 pc_pair.generate_report(
@@ -40,9 +41,11 @@ pc_pair.generate_report(
         "linearity_v0.05",
         "planarity_v0.05",
         "linearity_r0.1",
+        "sor_k8_std1.0",
     ],
     distance_list=["c2c"],
     summary_statistics=True,
+    outlier_statistics=True,
     return_number_metrics=True,
     visualizations=[
         "histogram_overlay",

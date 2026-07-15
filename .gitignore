@@ -2,6 +2,7 @@
 data/*
 output_*/
 pcfingerprint.log
+py4dgeo.log
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
