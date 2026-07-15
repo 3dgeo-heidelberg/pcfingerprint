@@ -116,34 +116,47 @@ def prepare_attribute_data(
 
 
 def prepare_histogram_data_per_class(
-    reference_pc,
-    compare_pcs: List,
+    series: List[Tuple],
+    reference: Optional[Tuple] = None,
 ):
-    """Prepare histogram data per class for the specified attribute."""
-    _validate_classes(reference_pc)
-    for compare_pc in compare_pcs:
-        _validate_classes(compare_pc)
+    """Split each ``(pc, attribute)`` series by class value found on its own point cloud.
 
-    classes = np.unique(reference_pc.classification)
-    hists_reference = []
-    hists_compare = []
-    for compare_pc in compare_pcs:
-        compare_classes = np.unique(compare_pc.classification)
-        classes = np.union1d(classes, compare_classes)
+    :param series: List of ``(PointCloud, attribute)`` pairs to split by class.
+    :type series: list[tuple[PointCloud, str]]
+    :param reference: Optional ``(PointCloud, attribute)`` pair for the reference series.
+    :type reference: tuple[PointCloud, str] | None
+
+    :return: ``(classes, reference_per_class, compare_per_class)`` where
+        ``reference_per_class`` is a list of ``(pc, attribute)`` pairs (or ``None``
+        entries if ``reference`` was ``None``) and ``compare_per_class`` is a list of
+        lists of ``(pc, attribute)`` pairs, both indexed in parallel with ``classes``.
+        Each ``pc`` is masked by its own ``classification`` attribute.
+    """
+    all_pcs = [pc for pc, _ in series] + (
+        [reference[0]] if reference is not None else []
+    )
+    for pc in all_pcs:
+        _validate_classes(pc)
+
+    classes = np.unique(
+        np.concatenate([np.unique(pc.classification) for pc in all_pcs])
+    )
+
+    reference_per_class = []
+    compare_per_class = []
     for class_value in classes:
-        class_filter_reference = reference_pc.classification == class_value
-        class_filters_compare = [
-            compare_pc.classification == class_value for compare_pc in compare_pcs
-        ]
-        hist_reference_class = reference_pc.mask(class_filter_reference)
-        hist_compare_class = [
-            compare_pc.mask(class_filters_compare[i])
-            for i, compare_pc in enumerate(compare_pcs)
-        ]
-        hists_reference.append(hist_reference_class)
-        hists_compare.append(hist_compare_class)
+        if reference is not None:
+            ref_pc, ref_attr = reference
+            reference_per_class.append(
+                (ref_pc.mask(ref_pc.classification == class_value), ref_attr)
+            )
+        else:
+            reference_per_class.append(None)
+        compare_per_class.append(
+            [(pc.mask(pc.classification == class_value), attr) for pc, attr in series]
+        )
 
-    return classes, hists_reference, hists_compare
+    return classes, reference_per_class, compare_per_class
 
 
 def plot_grid_layout(

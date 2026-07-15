@@ -377,22 +377,22 @@ def plot_3d_scatter_dist_comp(
 
 
 def plot_histogram(
-    compare_pcs: list,
-    attribute: str | list[str],
-    reference_pc=None,
+    series: list,
+    reference=None,
+    xlabel: str = "",
     bins: int = 100,
     overlay: bool = False,
     normalize: bool = False,
 ):
     """
-    Plot histograms of an attribute for reference and comparison point clouds side by side.
+    Plot histograms of one or more data series side by side.
 
-    :param compare_pcs: List of PointCloud objects representing the comparison point clouds
-    :type compare_pcs: list
-    :param attribute: Name of the attribute to plot or list of names of attributes to plot per point cloud
-    :type attribute: str or list
-    :param reference_pc: PointCloud object representing the reference point cloud
-    :type compare_pcs: PointCloud
+    :param series: List of ``(PointCloud, attribute)`` pairs, one per comparison panel.
+    :type series: list[tuple[PointCloud, str]]
+    :param reference: Optional ``(PointCloud, attribute)`` pair for the reference panel.
+    :type reference: tuple[PointCloud, str] | None
+    :param xlabel: Label used for the x-axis and plot titles/captions.
+    :type xlabel: str
     :param bins: Number of bins for the histogram
     :type bins: int
     :param overlay: Whether to overlay the histograms.
@@ -408,33 +408,26 @@ def plot_histogram(
         ylabel = "Frequency"
         histnorm = None
 
-    if attribute == "classification":
-        bins = np.unique(reference_pc.classification).size
-
-    # get attribute data
+    # get data for each series
     all_data = []
-    if reference_pc:
-        reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
-            reference_pc, attribute
-        )
+    if reference is not None:
+        reference_data = pcfingerprint.pcfingerprint.get_attribute_data(*reference)
         all_data.append(reference_data)
     else:
         reference_data = None
 
-    if isinstance(attribute, str):
-        compare_data = [
-            pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
-            for compare_pc in compare_pcs
-        ]
-        attr_name = attribute
-    elif isinstance(attribute, list):
-        compare_data = [
-            pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attr)
-            for compare_pc in compare_pcs
-            for attr in attribute
-        ]
-        attr_name = attribute[0].split("_")[0]
+    compare_data = [
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, attribute)
+        for pc, attribute in series
+    ]
+    attr_name = xlabel
     all_data.extend(compare_data)
+
+    if xlabel == "classification":
+        bins = np.unique(
+            reference_data if reference is not None else compare_data[0]
+        ).size
+
     bin_edges = histogram_bin_edges(all_data, bins)
 
     if overlay:  # overlay histograms with transparency
@@ -476,7 +469,7 @@ def plot_histogram(
     else:  # plot histograms side by side
         # determine plot grid based on inputs
         total_plots = len(all_data)
-        has_ref = reference_data != None
+        has_ref = reference_data is not None
         nrows, ncols, subplot_titles = plot_grid_layout(total_plots)
         fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=subplot_titles)
 
@@ -543,38 +536,39 @@ def plot_histogram(
 
 
 def plot_histogram_per_class(
-    reference_pc,
-    compare_pcs: list,
-    attribute: str,
+    series: list,
+    reference=None,
+    xlabel: str = "",
     bins: int = 100,
     normalize: bool = False,
 ):
     """
-    Plot histograms of an attribute for reference and comparison point clouds side by side, separated by class.
-    If a class is present in the reference point cloud but not in any of the comparison point clouds, or vice versa,
-    there will be one empty histogram.
+    Plot histograms of one or more data series side by side, separated by class.
+    If a class is present in one series but not in another, there will be one empty histogram.
 
-    :param reference_pc: PointCloud object representing the reference point cloud
-    :param compare_pcs: List of PointCloud objects representing the comparison point clouds
-    :param attribute: Name of the attribute to plot
-    :type attribute: str
+    :param series: List of ``(PointCloud, attribute)`` pairs, one per comparison panel.
+    :type series: list[tuple[PointCloud, str]]
+    :param reference: Optional ``(PointCloud, attribute)`` pair for the reference panel.
+    :type reference: tuple[PointCloud, str] | None
+    :param xlabel: Label used for the x-axis and plot titles/captions.
+    :type xlabel: str
     :param bins: Number of bins for the histogram
     :type bins: int
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
-    classes, hists_reference, hists_compare = prepare_histogram_data_per_class(
-        reference_pc, compare_pcs
+    classes, reference_per_class, compare_per_class = prepare_histogram_data_per_class(
+        series, reference
     )
     figs = []
 
-    for class_value, hist_reference_class, hist_compare_class in zip(
-        classes, hists_reference, hists_compare
+    for class_value, reference_class, compare_class in zip(
+        classes, reference_per_class, compare_per_class
     ):
         fig = plot_histogram(
-            compare_pcs=hist_compare_class,
-            attribute=attribute,
-            reference_pc=hist_reference_class,
+            series=compare_class,
+            reference=reference_class,
+            xlabel=xlabel,
             bins=bins,
             overlay=True,
             normalize=normalize,
