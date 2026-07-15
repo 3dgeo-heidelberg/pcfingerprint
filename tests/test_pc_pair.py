@@ -289,6 +289,49 @@ def test_voxel_features_parametrized(
         assert isinstance(feat, tuple) and len(feat) >= 2
 
 
+def test_outlier_report_warning_if_not_computed(caplog, pc_pair_with_coords):
+    """
+    Test that a warning is is logged if outlier statistics are requested
+    in the report but have not been computed.
+    """
+    caplog.set_level("WARNING")
+    pc_pair_with_coords.generate_report(
+        output_folder="output_dummy",
+        attribute_list=["z"],
+        summary_statistics=False,
+        outlier_statistics=True,
+        return_number_metrics=False,
+        visualizations=[],
+        preview=False,
+    )
+    assert (
+        "Outlier statistics requested but SOR outlier flags not computed for all point clouds."
+        in caplog.text
+    )
+
+
+@pytest.mark.parametrize(
+    "k,std_dev_multiplier,expected_keys",
+    [
+        (8, 1.0, ["sor_k8_std1.0"]),
+        (16, 1.5, ["sor_k16_std1.5"]),
+        (16, 1.66, ["sor_k16_std1.7"]),
+    ],
+    ids=[
+        "sor_k8_std1.0",
+        "sor_k16_std1.5",
+        "sor_k16_std1.7",
+    ],
+)
+def test_sor_parametrized(pc_pair_with_coords, k, std_dev_multiplier, expected_keys):
+    """Parametrized checks for statistical outlier removal."""
+    pc_pair_with_coords.compute_statistical_outlier_removal(
+        k=k, std_dev_multiplier=std_dev_multiplier
+    )
+    for k in expected_keys:
+        assert k in pc_pair_with_coords.reference.sor
+
+
 @pytest.mark.parametrize(
     "input_names,expected_list,expect_equal",
     [
