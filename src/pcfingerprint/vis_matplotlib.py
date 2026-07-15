@@ -342,20 +342,22 @@ def plot_3d_scatter_dist_comp(
 
 
 def plot_histogram(
-    compare_pcs: list,
-    attribute: str,
-    reference_pc=None,
+    series: list,
+    reference=None,
+    xlabel: str = "",
     bins: int = 100,
     overlay: bool = False,
     normalize: bool = False,
 ):
     """
-    Plot histograms of an attribute for reference and comparison point clouds side by side.
+    Plot histograms of one or more data series side by side.
 
-    :param reference_pc: PointCloud object representing the reference point cloud
-    :param compare_pcs: List of PointCloud objects representing the comparison point clouds
-    :param attribute: Name of the attribute to plot
-    :type attribute: str
+    :param series: List of ``(PointCloud, attribute)`` pairs, one per comparison panel.
+    :type series: list[tuple[PointCloud, str]]
+    :param reference: Optional ``(PointCloud, attribute)`` pair for the reference panel.
+    :type reference: tuple[PointCloud, str] | None
+    :param xlabel: Label used for the x-axis and plot titles/captions.
+    :type xlabel: str
     :param overlay: Whether to overlay the histograms (True) or plot them side by side (False)
     :type overlay: bool
     :param bins: Number of bins for the histogram
@@ -369,24 +371,24 @@ def plot_histogram(
     else:
         ylabel = "Frequency"
 
-    # get attribute data
+    # get data for each series
     all_data = []
-    if reference_pc:
-        reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
-            reference_pc, attribute
-        )
+    if reference is not None:
+        reference_data = pcfingerprint.pcfingerprint.get_attribute_data(*reference)
         all_data.append(reference_data)
     else:
         reference_data = None
     compare_data = [
-        pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
-        for compare_pc in compare_pcs
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, attribute)
+        for pc, attribute in series
     ]
     all_data.extend(compare_data)
     total_n_plots = len(all_data)
 
-    if attribute == "classification":
-        bins = np.unique(reference_pc.classification).size
+    if xlabel == "classification":
+        bins = np.unique(
+            reference_data if reference is not None else compare_data[0]
+        ).size
 
     if overlay:  # overlay histograms with transparency
         fig, ax = plt.subplots(figsize=(8, 6))
@@ -427,8 +429,8 @@ def plot_histogram(
                 density=normalize,
             )
         ax.set_axisbelow(True)
-        plt.title(f"Histogram of {attribute}")
-        plt.xlabel(attribute)
+        plt.title(f"Histogram of {xlabel}")
+        plt.xlabel(xlabel)
         plt.ylabel(ylabel)
         # add minor ticks
         plt.minorticks_on()
@@ -448,7 +450,7 @@ def plot_histogram(
 
         # get max frequency to scale y-axis equally
         max_freq = 0
-        if reference_data:
+        if reference_data is not None:
             max_freq = max(max_freq, max(np.histogram(reference_data, bins=bins)[0]))
         for data in compare_data:
             max_freq = max(max_freq, max(np.histogram(data, bins=bins)[0]))
@@ -458,7 +460,7 @@ def plot_histogram(
                 reference_data, bins=bins, color="blue", alpha=0.7, density=normalize
             )
             axs[0, 0].set_title("Reference Point Cloud")
-            axs[0, 0].set_xlabel(attribute)
+            axs[0, 0].set_xlabel(xlabel)
             axs[0, 0].set_ylabel(ylabel)
             # add minor ticks
             axs[0, 0].minorticks_on()
@@ -479,7 +481,7 @@ def plot_histogram(
                 axs[row, col].set_ylim(0, max_freq * 1.1)
             axs[row, col].set_axisbelow(True)
         # hide any unused subplots
-        if len(compare_pcs) + 1 < nrows * ncols:
+        if len(series) + has_reference < nrows * ncols:
             axs[row, -1].axis("off")
         plt.tight_layout()
 
@@ -487,38 +489,38 @@ def plot_histogram(
 
 
 def plot_histogram_per_class(
-    reference_pc,
-    compare_pcs: list,
-    attribute: str,
+    series: list,
+    reference=None,
+    xlabel: str = "",
     bins: int = 100,
     normalize: bool = False,
 ):
     """
-    Plot histograms of an attribute for reference and comparison point clouds side by side, separated by class.
-    If a class is present in the reference point cloud but not in any of the comparison point clouds, or vice versa,
-    there will be one empty histogram.
+    Plot histograms of one or more data series side by side, separated by class.
+    If a class is present in one series but not in another, there will be one empty histogram.
 
-    :param reference_pc: PointCloud object representing the reference point cloud
-    :param compare_pcs: List of PointCloud objects representing the comparison point clouds
-    :param attribute: Name of the attribute to plot
-    :type attribute: str
+    :param series: List of ``(PointCloud, attribute)`` pairs, one per comparison panel.
+    :type series: list[tuple[PointCloud, str]]
+    :param reference: Optional ``(PointCloud, attribute)`` pair for the reference panel.
+    :type reference: tuple[PointCloud, str] | None
+    :param xlabel: Label used for the x-axis and plot titles/captions.
+    :type xlabel: str
     :param bins: Number of bins for the histogram
     :type bins: int
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
 
-    classes, hists_reference, hists_compare = prepare_histogram_data_per_class(
-        reference_pc, compare_pcs
+    classes, reference_per_class, compare_per_class = prepare_histogram_data_per_class(
+        series, reference
     )
     figs = []
 
-    for hist_reference_class, hist_compare_class in zip(hists_reference, hists_compare):
-
+    for reference_class, compare_class in zip(reference_per_class, compare_per_class):
         fig = plot_histogram(
-            compare_pcs=hist_compare_class,
-            attribute=attribute,
-            reference_pc=hist_reference_class,
+            series=compare_class,
+            reference=reference_class,
+            xlabel=xlabel,
             bins=bins,
             overlay=True,
             normalize=normalize,

@@ -462,9 +462,9 @@ def test_histogram_per_class_matplotlib(pc_pair_with_coords_and_attr):
 
     # check if histogram per class can be generated without errors
     fig_list, classes = plot_histogram_per_class(
-        pc_pair_with_coords_and_attr.reference,
-        pc_pair_with_coords_and_attr.compare,
-        attribute="intensity",
+        series=[(pc, "intensity") for pc in pc_pair_with_coords_and_attr.compare],
+        reference=(pc_pair_with_coords_and_attr.reference, "intensity"),
+        xlabel="intensity",
     )
     num_classes_expected = 6
     assert fig_list is not None

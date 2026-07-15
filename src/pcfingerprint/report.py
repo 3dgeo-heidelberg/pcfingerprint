@@ -2,7 +2,8 @@
 Module for generating comparison reports between point clouds.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Tuple
+from dataclasses import dataclass, field
 from pathlib import Path
 from functools import partial
 import base64
@@ -318,6 +319,321 @@ class FigureSelection(Figure):
         return html
 
 
+@dataclass
+class Metric:
+    """A single renderable metric: one set of table/histogram/histogram-per-class panels.
+
+    ``reference`` and each entry in ``compares`` are ``(PointCloud, attribute)`` pairs.
+    The attribute name may differ per entry (and ``reference`` may be ``None``), which is
+    what lets one ``Metric`` represent direction-asymmetric distances (e.g. c2c forward/
+    backward) using the same rendering path as plain, symmetric attributes.
+    """
+
+    key: str
+    display_name: str
+    reference: Optional[Tuple] = None
+    compares: List[Tuple] = field(default_factory=list)
+    skip_summary: bool = False
+    skip_per_class: bool = False
+
+
+def _attribute_metrics(
+    reference_pc,
+    compare_pcs: list,
+    attribute_list: list,
+    class_distribution: bool,
+    return_number_metrics: bool,
+) -> List[Metric]:
+    """Build one Metric per attribute in ``attribute_list``."""
+    metrics = []
+    for attribute in attribute_list:
+        skip_summary = (class_distribution and attribute == "classification") or (
+            return_number_metrics
+            and attribute in ["return_number", "number_of_returns"]
+        )
+        metrics.append(
+            Metric(
+                key=attribute,
+                display_name=attribute,
+                reference=(reference_pc, attribute),
+                compares=[(pc, attribute) for pc in compare_pcs],
+                skip_summary=skip_summary,
+                skip_per_class=(attribute == "classification"),
+            )
+        )
+    return metrics
+
+
+def _distance_metrics(
+    reference_pc,
+    compare_pcs: list,
+    distance_list: list,
+) -> List[Metric]:
+    """Build forward/backward Metrics per distance category (e.g. "c2c") in ``distance_list``.
+
+    Distances have no true reference-side counterpart: forward distances
+    (reference to compare) all live on ``reference_pc`` under one key per compare
+    cloud, and backward distances (compare to reference) live on each compare
+    cloud under one shared key. Both are modelled as ``reference=None`` metrics
+    whose ``compares`` list carries the asymmetry via differing ``(pc, attribute)``
+    pairs.
+    """
+    if not distance_list:
+        return []
+    categories = sorted(set(d.split("_")[0] for d in distance_list))
+    metrics = []
+    for category in categories:
+        metrics.append(
+            Metric(
+                key=f"{category}_to-compare",
+                display_name=f"{category} (reference to compare)",
+                compares=[
+                    (reference_pc, f"{category}_to-compare-{i}")
+                    for i in range(len(compare_pcs))
+                ],
+            )
+        )
+        metrics.append(
+            Metric(
+                key=f"{category}_to-reference",
+                display_name=f"{category} (compare to reference)",
+                compares=[
+                    (compare_pc, f"{category}_to-reference")
+                    for compare_pc in compare_pcs
+                ],
+            )
+        )
+    return metrics
+
+
+def _summary_stats_table(metric: Metric):
+    """Build a summary-statistics table for a metric's reference (if any) and compare series."""
+    from pcfingerprint import stats
+
+    stats_reference = None
+    if metric.reference is not None:
+        ref_pc, ref_attr = metric.reference
+        stats_reference = stats.compute_statistics(
+            pcfingerprint.pcfingerprint.get_attribute_data(ref_pc, ref_attr)
+        )
+    stats_compares = [
+        stats.compute_statistics(
+            pcfingerprint.pcfingerprint.get_attribute_data(pc, attr)
+        )
+        for pc, attr in metric.compares
+    ]
+
+    all_stats = (
+        [stats_reference] if stats_reference is not None else []
+    ) + stats_compares
+    keys = list(all_stats[0].keys())
+
+    def _is_null(value):
+        try:
+            return np.isnan(value)
+        except TypeError:
+            return pd.isnull(value)
+
+    keys_to_remove = [k for k in keys if all(_is_null(s[k]) for s in all_stats)]
+    keys = [k for k in keys if k not in keys_to_remove]
+
+    df = pd.DataFrame({"Statistics": keys})
+    if stats_reference is not None:
+        df["Reference"] = [stats_reference[k] for k in keys]
+        df["Reference"] = df["Reference"].astype(object)
+    for i, s_stats in enumerate(stats_compares):
+        col = f"Comparison {i+1}"
+        df[col] = [s_stats[k] for k in keys]
+        df[col] = df[col].astype(object)
+
+    # row formatting: limit to four decimal places (mode stays as-is)
+    for k in keys:
+        if "mode" not in k:
+            df.loc[df["Statistics"] == k, df.columns != "Statistics"] = df.loc[
+                df["Statistics"] == k, df.columns != "Statistics"
+            ].map(lambda x: f"{x:.4f}")
+
+    return DataFrameTable(df, caption=f"Summary statistics for {metric.display_name}")
+
+
+def _histogram_content(report, metric: Metric, overlay: bool, vis_backend: str):
+    """Build a FigureSelection with frequency/density histogram panels for a metric."""
+    if vis_backend == "matplotlib":
+        from pcfingerprint.vis_matplotlib import plot_histogram
+
+        ext = "png"
+    elif vis_backend == "plotly":
+        from pcfingerprint.vis_plotly import plot_histogram
+
+        ext = "html"
+    else:
+        raise NotImplementedError(
+            f"Visualization backend {vis_backend} not supported for histogram plot."
+        )
+
+    figs = []
+    for norm, norm_str in ((False, "frequency"), (True, "density")):
+        fig = plot_histogram(
+            series=metric.compares,
+            reference=metric.reference,
+            xlabel=metric.display_name,
+            overlay=overlay,
+            normalize=norm,
+        )
+        fig_file = (
+            report.target_folder
+            / IMG_FOLDER
+            / f"{metric.key}_histogram_{norm_str}.{ext}"
+        )
+        if vis_backend == "matplotlib":
+            fig.savefig(fig_file, format="png")
+            plt.close(fig)
+        else:
+            fig.write_html(fig_file, config={"responsive": True})
+        figs.append((norm_str, fig_file))
+
+    return FigureSelection(
+        figure_paths=[p.relative_to(report.target_folder) for _, p in figs],
+        figure_labels=[label for label, _ in figs],
+        render_mode="image" if vis_backend == "matplotlib" else "iframe",
+        caption=f"Histogram of {metric.display_name}",
+    )
+
+
+def _histogram_per_class_content(
+    report, metric: Metric, vis_backend: str, class_mapping: Optional[dict]
+):
+    """Build a FigureSelection with one panel per class value for a metric (both norm variants)."""
+    if vis_backend == "matplotlib":
+        from pcfingerprint.vis_matplotlib import plot_histogram_per_class
+
+        ext = "png"
+    elif vis_backend == "plotly":
+        from pcfingerprint.vis_plotly import plot_histogram_per_class
+
+        ext = "html"
+    else:
+        raise NotImplementedError(
+            f"Visualization backend {vis_backend} not supported for histogram plot."
+        )
+
+    figure_paths = []
+    figure_labels = []
+    for norm, norm_str in ((False, "frequency"), (True, "density")):
+        figs, classes = plot_histogram_per_class(
+            series=metric.compares,
+            reference=metric.reference,
+            xlabel=metric.display_name,
+            normalize=norm,
+        )
+        for fig, class_val in zip(figs, classes):
+            if class_mapping is not None and class_val in class_mapping:
+                class_label = class_mapping[class_val]
+            else:
+                class_label = str(class_val)
+            fig_file = (
+                report.target_folder
+                / IMG_FOLDER
+                / f"{metric.key}_histogram_class{class_label}_{norm_str}.{ext}"
+            )
+            if vis_backend == "matplotlib":
+                fig.savefig(fig_file, format="png")
+                plt.close(fig)
+            else:
+                fig.write_html(fig_file, config={"responsive": True})
+            figure_paths.append(fig_file.relative_to(report.target_folder))
+            figure_labels.append(f"class_{class_label}_{norm_str}")
+
+    if len(figure_paths) == 0:
+        return None
+
+    return FigureSelection(
+        figure_paths=figure_paths,
+        figure_labels=figure_labels,
+        render_mode="image" if vis_backend == "matplotlib" else "iframe",
+        caption=f"Histogram of {metric.display_name} per class",
+    )
+
+
+def _render_metric(
+    report,
+    metric: Metric,
+    *,
+    summary_statistics: bool,
+    visualizations: list,
+    vis_backend: str,
+    class_mapping: Optional[dict],
+) -> dict:
+    """Render one metric's requested content pieces (table / histogram / histogram-per-class)."""
+    content = {}
+
+    if summary_statistics and not metric.skip_summary:
+        content["table"] = _summary_stats_table(metric)
+
+    if "histogram" in visualizations or "histogram_overlay" in visualizations:
+        overlay = "histogram_overlay" in visualizations
+        content["hist"] = _histogram_content(report, metric, overlay, vis_backend)
+
+    if "histogram_per_class" in visualizations and not metric.skip_per_class:
+        hist_per_class = _histogram_per_class_content(
+            report, metric, vis_backend, class_mapping
+        )
+        if hist_per_class is not None:
+            content["hist_per_class"] = hist_per_class
+
+    return content
+
+
+def _add_metrics_to_section(
+    report,
+    section,
+    metrics: List[Metric],
+    *,
+    summary_statistics: bool,
+    visualizations: list,
+    vis_backend: str,
+    class_mapping: Optional[dict],
+) -> bool:
+    """Render ``metrics`` and attach non-empty table/histogram/per-class tabs to ``section``.
+
+    :return: Whether any content was added to the section.
+    """
+    tab_tables = Tabs()
+    tab_hists = Tabs()
+    tab_hists_per_class = Tabs()
+    content_tables = {}
+    content_hists = {}
+    content_hists_per_class = {}
+
+    for metric in metrics:
+        content = _render_metric(
+            report,
+            metric,
+            summary_statistics=summary_statistics,
+            visualizations=visualizations,
+            vis_backend=vis_backend,
+            class_mapping=class_mapping,
+        )
+        if "table" in content:
+            content_tables[metric.key] = content["table"]
+        if "hist" in content:
+            content_hists[metric.key] = content["hist"]
+        if "hist_per_class" in content:
+            content_hists_per_class[metric.key] = content["hist_per_class"]
+
+    if len(content_tables) > 0:
+        tab_tables.add_tabs(content_tables)
+        section.add_content({"tables": tab_tables})
+    if len(content_hists) > 0:
+        tab_hists.add_tabs(content_hists)
+        section.add_content({"histograms": tab_hists})
+    if len(content_hists_per_class) > 0:
+        tab_hists_per_class.add_tabs(content_hists_per_class)
+        section.add_content({"histograms_per_class": tab_hists_per_class})
+
+    return bool(content_tables or content_hists or content_hists_per_class)
+
+
 def generate_report(
     reference_pc,
     compare_pcs: list,
@@ -469,243 +785,24 @@ def generate_report(
 
     # Section for attribute comparisons
     section = Section(section_title=f"Attribute Comparisons")
-    attr_tab_tables = Tabs()
-    attr_tab_hists = Tabs()
-    attr_tab_hists_per_class = Tabs()
-    for attribute in attribute_list:
-        # extract data for attribute
-        reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
-            reference_pc, attribute
-        )
-        compare_data = []
-        for compare_pc in compare_pcs:
-            compare_data.append(
-                pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
-            )
-
-        tab_content_tables = {}
-        tab_content_hists = {}
-        tab_content_hists_per_class = {}
-
-        if summary_statistics and not (
-            (class_distribution and attribute == "classification")
-            or (
-                return_number_metrics
-                and attribute in ["return_number", "number_of_returns"]
-            )
-        ):
-            # compute summary statistics
-            logger.info(f"Computing summary statistics for attribute '{attribute}'...")
-            stats_reference = stats.compute_statistics(reference_data)
-            stats_compare = [stats.compute_statistics(data) for data in compare_data]
-
-            # remove stats where all values are NaN across reference and comparison (e.g. mode if not int)
-            keys_to_remove = []
-            for k in stats_reference.keys():
-                try:
-                    if np.isnan(stats_reference[k]) and all(
-                        [np.isnan(s_stats[k]) for s_stats in stats_compare]
-                    ):
-                        keys_to_remove.append(k)
-                except TypeError:
-                    if pd.isnull(stats_reference[k]) and all(
-                        [pd.isnull(s_stats[k]) for s_stats in stats_compare]
-                    ):
-                        keys_to_remove.append(k)
-            for k in keys_to_remove:
-                del stats_reference[k]
-                for s_stats in stats_compare:
-                    del s_stats[k]
-
-            # create a pandas dataframe from this
-            keys = stats_reference.keys()
-            df = pd.DataFrame(
-                {
-                    "Statistics": keys,
-                    "Reference": [stats_reference[k] for k in keys],
-                }
-            )
-            df["Reference"] = df["Reference"].astype(object)
-            # add a column for each comparison pc
-            for i, s_stats in enumerate(stats_compare):
-                df[f"Comparison {i+1}"] = [s_stats[k] for k in keys]
-                df[f"Comparison {i+1}"] = df[f"Comparison {i+1}"].astype(object)
-
-            # row formatting
-            for k in keys:
-                if not "mode" in k:
-                    # limit to four decimal places
-                    df.loc[df["Statistics"] == k, df.columns != "Statistics"] = df.loc[
-                        df["Statistics"] == k, df.columns != "Statistics"
-                    ].map(lambda x: f"{x:.4f}")
-
-            table = DataFrameTable(
-                df, caption="Summary statistics for attribute: " + attribute
-            )
-
-            tab_content_tables[attribute] = table
-
-        if "histogram" in visualizations or "histogram_overlay" in visualizations:
-            if "histogram_overlay" in visualizations:
-                overlay = True
-            else:
-                overlay = False
-            # generate histogram plot
-            if vis_backend == "matplotlib":
-                # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
-                from pcfingerprint.vis_matplotlib import plot_histogram
-
-                imgs = []
-                for norm, norm_str in ((False, "frequency"), (True, "density")):
-                    fig = plot_histogram(
-                        compare_pcs,
-                        attribute,
-                        reference_pc=reference_pc,
-                        overlay=overlay,
-                        normalize=norm,
-                    )
-                    img_file = (
-                        report.target_folder
-                        / IMG_FOLDER
-                        / f"{attribute}_histogram_{norm_str}.png"
-                    )
-                    fig.savefig(img_file, format="png")
-                    plt.close(fig)
-                    imgs.append((norm_str, img_file))
-                image_labels = [label for label, _ in imgs]
-                image_names = [
-                    path.relative_to(report.target_folder) for _, path in imgs
-                ]
-                figure_selection = FigureSelection(
-                    figure_paths=image_names,
-                    figure_labels=image_labels,
-                    caption=f"Histogram of {attribute}",
-                )
-                tab_content_hists[attribute] = figure_selection
-            elif vis_backend == "plotly":
-                from pcfingerprint.vis_plotly import plot_histogram
-
-                figs = []
-                for norm, norm_str in ((False, "frequency"), (True, "density")):
-                    fig = plot_histogram(
-                        compare_pcs,
-                        attribute,
-                        reference_pc,
-                        overlay=overlay,
-                        normalize=norm,
-                    )
-                    fig_file = (
-                        report.target_folder
-                        / IMG_FOLDER
-                        / Path(f"{attribute}_histogram_{norm_str}.html")
-                    )
-                    fig.write_html(fig_file, config={"responsive": True})
-                    figs.append((norm_str, fig_file))
-                figure_selection = FigureSelection(
-                    figure_paths=[
-                        path.relative_to(report.target_folder) for _, path in figs
-                    ],
-                    figure_labels=[label for label, _ in figs],
-                    render_mode="iframe",
-                    caption=f"Histogram of {attribute}",
-                )
-                tab_content_hists[attribute] = figure_selection
-            else:
-                # other backends not supported yet
-                raise NotImplementedError(
-                    f"Visualization backend {vis_backend} not supported for histogram plot."
-                )
-
-        if "histogram_per_class" in visualizations and attribute != "classification":
-            # generate histogram plot
-            if vis_backend == "matplotlib":
-                # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
-                from pcfingerprint.vis_matplotlib import plot_histogram_per_class
-
-                imgs = []
-                for norm, norm_str in ((False, "frequency"), (True, "density")):
-                    figs, classes = plot_histogram_per_class(
-                        reference_pc, compare_pcs, attribute, normalize=norm
-                    )
-                    for fig, class_val in zip(figs, classes):
-                        img_file = (
-                            report.target_folder
-                            / IMG_FOLDER
-                            / Path(
-                                f"{attribute}_histogram_class{class_val}_{norm_str}.png"
-                            )
-                        )
-                        fig.savefig(img_file, format="png")
-                        plt.close(fig)
-                        imgs.append((f"class_{class_val}_{norm_str}", img_file))
-                if len(imgs) > 0:
-                    image_labels = [label for label, _ in imgs]
-                    image_names = [
-                        path.relative_to(report.target_folder) for _, path in imgs
-                    ]
-                    figure_selection = FigureSelection(
-                        figure_paths=image_names,
-                        figure_labels=image_labels,
-                        caption=f"Histogram of {attribute} per class",
-                    )
-                    tab_content_hists_per_class[attribute] = figure_selection
-            elif vis_backend == "plotly":
-                from pcfingerprint.vis_plotly import plot_histogram_per_class
-
-                figure_paths = []
-                figure_labels = []
-                for norm, norm_str in ((False, "frequency"), (True, "density")):
-                    figs, classes = plot_histogram_per_class(
-                        reference_pc, compare_pcs, attribute, normalize=norm
-                    )
-                    for fig, class_val in zip(figs, classes):
-                        if class_mapping is not None and class_val in class_mapping:
-                            class_label = class_mapping[class_val]
-                        else:
-                            class_label = str(class_val)
-                        fig_file = (
-                            report.target_folder
-                            / IMG_FOLDER
-                            / Path(
-                                f"{attribute}_histogram_class{class_label}_{norm_str}.html"
-                            )
-                        )
-                        fig.write_html(fig_file, config={"responsive": True})
-                        figure_paths.append(fig_file.relative_to(report.target_folder))
-                        figure_labels.append(f"class_{class_label}_{norm_str}")
-                if len(figure_paths) > 0:
-                    figure_selection = FigureSelection(
-                        figure_paths=figure_paths,
-                        figure_labels=figure_labels,
-                        render_mode="iframe",
-                        caption=f"Histogram of {attribute} per class",
-                    )
-                    tab_content_hists_per_class[f"{attribute}"] = figure_selection
-            else:
-                # other backends not supported yet
-                raise NotImplementedError(
-                    f"Visualization backend {vis_backend} not supported for histogram plot."
-                )
-
-        # Add the figure and table to the section
-        attr_tab_tables.add_tabs(tab_content_tables)
-        attr_tab_hists.add_tabs(tab_content_hists)
-        attr_tab_hists_per_class.add_tabs(tab_content_hists_per_class)
-    # add the tabs to the section if they contain any content
-    if len(attr_tab_tables.tabs) > 0:
-        section.add_content({"attribute_tables": attr_tab_tables})
-    if len(attr_tab_hists.tabs) > 0:
-        section.add_content({"attribute_histograms": attr_tab_hists})
-    if len(attr_tab_hists_per_class.tabs) > 0:
-        section.add_content(
-            {"attribute_histograms_per_class": attr_tab_hists_per_class}
-        )
-    if not (
-        len(attr_tab_tables.tabs) == 0
-        and len(attr_tab_hists.tabs) == 0
-        and len(attr_tab_hists_per_class.tabs) == 0
-    ):
-        block_content[f"section_attribute_comparisons"] = section
+    attribute_metrics = _attribute_metrics(
+        reference_pc,
+        compare_pcs,
+        attribute_list,
+        class_distribution,
+        return_number_metrics,
+    )
+    has_content = _add_metrics_to_section(
+        report,
+        section,
+        attribute_metrics,
+        summary_statistics=summary_statistics,
+        visualizations=visualizations,
+        vis_backend=vis_backend,
+        class_mapping=class_mapping,
+    )
+    if has_content:
+        block_content["section_attribute_comparisons"] = section
 
     if outlier_statistics:
         section = Section(section_title=f"Outlier Statistics")
@@ -926,248 +1023,16 @@ def generate_report(
                 scatter_tabs_comp.add_tabs(tab_content_scatter_comp)
                 section.add_content({"distance_scatter_tabs_comp": scatter_tabs_comp})
 
-        if "histogram" in visualizations or "histogram_overlay" in visualizations:
-            dists_tab_hists_ref = Tabs()
-            dists_tab_hists_comp = Tabs()
-            tab_content_hists_ref = {}
-            tab_content_hists_comp = {}
-
-            if "histogram_overlay" in visualizations:
-                overlay = True
-            else:
-                overlay = False
-
-            # generate histogram plot
-            if vis_backend == "matplotlib":
-                from pcfingerprint.vis_matplotlib import plot_histogram
-
-                for dist_category in tab_categories:
-
-                    dist_ref = [
-                        d
-                        for d in distance_list
-                        if dist_category in d and "to-compare" in d
-                    ]
-                    dist_comp = f"{dist_category}_to-reference"
-
-                imgs = []
-                for norm, norm_str in ((False, "frequency"), (True, "density")):
-                    fig = plot_histogram(
-                        compare_pcs,
-                        attribute=dist_comp,
-                        reference_pc=None,
-                        overlay=overlay,
-                        normalize=norm,
-                    )
-                    img_file = (
-                        report.target_folder
-                        / IMG_FOLDER
-                        / f"{dist_comp}_histogram_{norm_str}.png"
-                    )
-                    fig.savefig(img_file, format="png")
-                    plt.close(fig)
-                    imgs.append((norm_str, img_file))
-                image_labels = [label for label, _ in imgs]
-                image_names = [
-                    path.relative_to(report.target_folder) for _, path in imgs
-                ]
-                figure_selection = FigureSelection(
-                    figure_paths=image_names,
-                    figure_labels=image_labels,
-                    caption=f"Histogram of {dist_category} (compare to reference)",
-                )
-                tab_content_hists_comp[dist_comp] = figure_selection
-                # same for reference to comparison
-                pcs = [reference_pc] * len(dist_ref)
-                for norm, norm_str in ((False, "frequency"), (True, "density")):
-                    fig = plot_histogram(
-                        pcs,
-                        attribute=dist_ref,
-                        reference_pc=None,
-                        overlay=overlay,
-                        normalize=norm,
-                    )
-                    img_file = (
-                        report.target_folder
-                        / IMG_FOLDER
-                        / f"{dist_comp}_histogram_{norm_str}.png"
-                    )
-                    fig.savefig(img_file, format="png")
-                    plt.close(fig)
-                    imgs.append((norm_str, img_file))
-                image_labels = [label for label, _ in imgs]
-                image_names = [
-                    path.relative_to(report.target_folder) for _, path in imgs
-                ]
-                figure_selection = FigureSelection(
-                    figure_paths=image_names,
-                    figure_labels=image_labels,
-                    caption=f"Histogram of {dist_category} (reference to compare)",
-                )
-                tab_content_hists_ref[dist_comp] = figure_selection
-            elif vis_backend == "plotly":
-                from pcfingerprint.vis_plotly import plot_histogram
-
-                for dist_category in tab_categories:
-
-                    dist_ref = [
-                        d
-                        for d in distance_list
-                        if dist_category in d and "to-compare" in d
-                    ]
-                    dist_comp = f"{dist_category}_to-reference"
-
-                figs = []
-                for norm, norm_str in ((False, "frequency"), (True, "density")):
-                    fig = plot_histogram(
-                        compare_pcs,
-                        attribute=dist_comp,
-                        reference_pc=None,
-                        overlay=overlay,
-                        normalize=norm,
-                    )
-                    fig_file = (
-                        report.target_folder
-                        / IMG_FOLDER
-                        / Path(f"{dist_comp}_histogram_{norm_str}.html")
-                    )
-                    fig.write_html(fig_file, config={"responsive": True})
-                    figs.append((norm_str, fig_file))
-                figure_selection = FigureSelection(
-                    figure_paths=[
-                        path.relative_to(report.target_folder) for _, path in figs
-                    ],
-                    figure_labels=[label for label, _ in figs],
-                    render_mode="iframe",
-                    caption=f"Histogram of {dist_comp} (compare to reference)",
-                )
-                tab_content_hists_comp[attribute] = figure_selection
-                pcs = [reference_pc] * len(dist_ref)
-                for norm, norm_str in ((False, "frequency"), (True, "density")):
-                    fig = plot_histogram(
-                        pcs,
-                        attribute=dist_ref,
-                        reference_pc=None,
-                        overlay=overlay,
-                        normalize=norm,
-                    )
-                    fig_file = (
-                        report.target_folder
-                        / IMG_FOLDER
-                        / Path(f"{dist_ref}_histogram_{norm_str}.html")
-                    )
-                    fig.write_html(fig_file, config={"responsive": True})
-                    figs.append((norm_str, fig_file))
-                figure_selection = FigureSelection(
-                    figure_paths=[
-                        path.relative_to(report.target_folder) for _, path in figs
-                    ],
-                    figure_labels=[label for label, _ in figs],
-                    render_mode="iframe",
-                    caption=f"Histogram of {dist_comp} (reference to compare)",
-                )
-                tab_content_hists_ref[attribute] = figure_selection
-            else:
-                # other backends not supported yet
-                raise NotImplementedError(
-                    f"Visualization backend {vis_backend} not supported for histogram plot."
-                )
-
-            dists_tab_hists_ref.add_tabs(tab_content_hists_ref)
-            dists_tab_hists_comp.add_tabs(tab_content_hists_comp)
-            if len(tab_content_hists_ref) > 0 and len(tab_content_hists_comp) > 0:
-                dists_tab_hists_ref.add_tabs(tab_content_hists_ref)
-                dists_tab_hists_comp.add_tabs(tab_content_hists_comp)
-                section.add_content({"distance_hist_tabs_ref": dists_tab_hists_ref})
-                section.add_content({"distance_hist_tabs_comp": dists_tab_hists_comp})
-
-        if summary_statistics:
-            summary_tabs_dist = Tabs()
-            tab_content_summary_dist = {}
-            for dist_category in tab_categories:
-                logger.info(
-                    f"Computing summary statistics for distance category '{dist_category}'..."
-                )
-                # reference to compare
-                stats_dist = {}
-                for dist_category in tab_categories:
-                    for dist_metric in [
-                        d for d in distance_list if f"{dist_category}_to-compare" in d
-                    ]:
-                        data = pcfingerprint.pcfingerprint.get_attribute_data(
-                            reference_pc, dist_metric
-                        )
-                        stats_dmetric = stats.compute_statistics(data)
-                        stats_dist[dist_metric] = stats_dmetric
-                        keys = stats_dmetric.keys()
-                    compare_metric = f"{dist_category}_to-reference"
-                    compare_data = []
-                    for compare_pc in compare_pcs:
-                        compare_data.append(
-                            pcfingerprint.pcfingerprint.get_attribute_data(
-                                compare_pc, attribute
-                            )
-                        )
-                    stats_compare = [
-                        stats.compute_statistics(data) for data in compare_data
-                    ]
-                    for i, stats_dmetric in enumerate(stats_compare):
-                        stats_dist[f"{compare_metric}-{i}"] = stats_dmetric
-
-                    keys_to_remove = []
-                    for k in keys:
-                        try:
-                            if all(
-                                [
-                                    np.isnan(s_stats[k])
-                                    for _, s_stats in stats_dist.items()
-                                ]
-                            ):
-                                keys_to_remove.append(k)
-                        except TypeError:
-                            if all(
-                                [
-                                    pd.isnull(s_stats[k])
-                                    for _, s_stats in stats_dist.items()
-                                ]
-                            ):
-                                keys_to_remove.append(k)
-                    for k in keys_to_remove:
-                        for n, s_stats in stats_dist.items():
-                            del s_stats[k]
-
-                    # create a pandas dataframe from this - one column per entry in dict
-                    df = pd.DataFrame(
-                        {
-                            "Statistics": keys,
-                        }
-                    )
-                    # add the columns
-                    for name, s_stats in stats_dist.items():
-                        df[name] = [s_stats[k] for k in keys]
-                        df[name] = df[name].astype(object)
-                    # todo: row formatting
-                    for k in keys:
-                        if not "mode" in k:
-                            # limit to four decimal places
-                            df.loc[
-                                df["Statistics"] == k, df.columns != "Statistics"
-                            ] = df.loc[
-                                df["Statistics"] == k, df.columns != "Statistics"
-                            ].map(
-                                lambda x: f"{x:.4f}"
-                            )
-
-                    table = DataFrameTable(
-                        df,
-                        caption="Summary statistics for distance metric: "
-                        + dist_category,
-                    )
-
-                    tab_content_summary_dist[dist_category] = table
-            if len(tab_content_summary_dist) > 0:
-                summary_tabs_dist.add_tabs(tab_content_summary_dist)
-                section.add_content({"distance_summary_tabs": summary_tabs_dist})
+        distance_metrics = _distance_metrics(reference_pc, compare_pcs, distance_list)
+        _add_metrics_to_section(
+            report,
+            section,
+            distance_metrics,
+            summary_statistics=summary_statistics,
+            visualizations=visualizations,
+            vis_backend=vis_backend,
+            class_mapping=class_mapping,
+        )
 
         block_content["section_distance_metrics"] = section
 
