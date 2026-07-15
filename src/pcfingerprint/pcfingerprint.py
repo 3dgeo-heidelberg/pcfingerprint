@@ -381,33 +381,55 @@ class PointCloudPair:
 
         if density_requested:
             if backend == "jakteristics":
-                _compute(
-                    self.reference,
-                    compute_density_jakteristics,
-                    radius=radius,
-                    max_knn=max_knn,
-                )
-                for compare_pc in self.compare:
+                with logger_context(
+                    f"Computing density for reference pc using jakteristics. Search radius: {radius}, max_knn: {max_knn}"
+                ):
                     _compute(
-                        compare_pc,
+                        self.reference,
                         compute_density_jakteristics,
                         radius=radius,
                         max_knn=max_knn,
                     )
-            elif backend == "pgeof":
-                _compute(
-                    self.reference,
-                    compute_density_pgeof,
-                    radius=radius,
-                    max_knn=max_knn,
-                )
                 for compare_pc in self.compare:
+                    name = (
+                        Path(compare_pc.source).name
+                        if compare_pc.source is not None
+                        else "unknown source"
+                    )
+                    with logger_context(
+                        f"Computing density for {name} using jakteristics. Search radius: {radius}, max_knn: {max_knn}"
+                    ):
+                        _compute(
+                            compare_pc,
+                            compute_density_jakteristics,
+                            radius=radius,
+                            max_knn=max_knn,
+                        )
+            elif backend == "pgeof":
+                with logger_context(
+                    f"Computing density for reference pc using pgeof. Search radius: {radius}, max_knn: {max_knn}"
+                ):
                     _compute(
-                        compare_pc,
+                        self.reference,
                         compute_density_pgeof,
                         radius=radius,
                         max_knn=max_knn,
                     )
+                for compare_pc in self.compare:
+                    name = (
+                        Path(compare_pc.source).name
+                        if compare_pc.source is not None
+                        else "unknown source"
+                    )
+                    with logger_context(
+                        f"Computing density for {name} using pgeof. Search radius: {radius}, max_knn: {max_knn}"
+                    ):
+                        _compute(
+                            compare_pc,
+                            compute_density_pgeof,
+                            radius=radius,
+                            max_knn=max_knn,
+                        )
             else:
                 raise ValueError(f"Backend {backend} not supported.")
 

@@ -14,6 +14,9 @@ interior points of each tile are kept when merging results back.
 
 from types import SimpleNamespace
 import numpy as np
+import logging
+
+logger = logging.getLogger("pcfingerprint")
 
 
 def _decide_split_axes(coords, vertical_extent_ratio=0.5):
@@ -123,6 +126,10 @@ def run_chunked_computation(
     n_points = point_cloud.coords.shape[0]
     tiles = generate_chunk_tiles(
         point_cloud.coords, max_points_per_chunk, buffer, vertical_extent_ratio
+    )
+
+    logger.info(
+        f"Chunked computation using {len(tiles)} tiles with max. {max_points_per_chunk} points."
     )
 
     merged_features = {}
