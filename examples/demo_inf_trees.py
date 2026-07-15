@@ -14,6 +14,8 @@ pc_pair.load_compare(
     list(data_folder.glob("output_tree1_mesh_0.10ns*_merged_trees.laz"))
 )
 
+pc_pair.compute_c2c_distances(max_distance=1.0)
+
 pc_pair.compute_geometric_features(
     feature_names=["linearity"], radius=0.1, backend="pgeof"
 )
@@ -41,12 +43,15 @@ pc_pair.generate_report(
         "linearity_r0.1",
         "sor_k8_std1.0",
     ],
+    distance_list=["c2c"],
     summary_statistics=True,
     outlier_statistics=True,
     return_number_metrics=True,
     visualizations=[
         "histogram_overlay",
+        # "histogram",
         "3d_scatter",
+        # "3d_scatter_distances"
     ],
     vis_backend="plotly",
 )

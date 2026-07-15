@@ -11,6 +11,15 @@ from plotly.subplots import make_subplots
 from jinja2 import Template
 import pcfingerprint
 from pcfingerprint.utils import subsample_points, _validate_classes
+from pcfingerprint.vis_common import (
+    prepare_attribute_data,
+    plot_grid_layout,
+    prepare_distance_scatter_comp_data,
+    prepare_distance_scatter_ref_data,
+    histogram_bin_edges,
+    classification_color_mapping,
+    prepare_histogram_data_per_class,
+)
 
 import logging
 
@@ -102,67 +111,6 @@ def write_html_with_linked_3d_camera(fig: go.Figure, file, **kwargs):
     fig.write_html(file, post_script=post_script, **kwargs)
 
 
-def plot_grid(num_plots):
-    """
-    Helper function to determine the number of rows and columns for subplots based on the number of plots.
-    """
-    ncols = 2 if num_plots <= 4 else 3
-    nrows = math.ceil(num_plots / ncols)
-    subplot_titles = [""] * (nrows * ncols)
-    subplot_titles[0] = "Reference Point Cloud"
-    for i in range(num_plots - 1):
-        subplot_titles[i + 1] = f"Comparison Point Cloud {i + 1}"
-
-    fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=subplot_titles)
-
-    return fig, nrows, ncols
-
-
-def plot_grid_3d(num_plots):
-    """
-    Helper function to determine the number of rows and columns for subplots based on the number of plots.
-    """
-    ncols = 2 if num_plots <= 4 else 3
-    nrows = math.ceil(num_plots / ncols)
-    subplot_titles = [""] * (nrows * ncols)
-    subplot_titles[0] = "Reference Point Cloud"
-    for i in range(num_plots - 1):
-        subplot_titles[i + 1] = f"Comparison Point Cloud {i + 1}"
-
-    fig = make_subplots(
-        rows=nrows,
-        cols=ncols,
-        subplot_titles=subplot_titles,
-        specs=[[{"type": "scatter3d"} for _ in range(ncols)] for _ in range(nrows)],
-    )
-
-    return fig, nrows, ncols
-
-
-def _histogram_bin_edges(values_list, bins: int) -> np.ndarray:
-    """Return shared histogram bin edges for multiple data series."""
-    arrays = [np.asarray(values) for values in values_list if values is not None]
-    if not arrays:
-        return np.linspace(0.0, 1.0, bins + 1)
-
-    combined = np.concatenate([array[np.isfinite(array)] for array in arrays])
-    if combined.size == 0:
-        return np.linspace(0.0, 1.0, bins + 1)
-
-    min_value = float(np.min(combined))
-    max_value = float(np.max(combined))
-    if min_value == max_value:
-        padding = 0.5 if min_value == 0 else max(abs(min_value) * 0.05, 0.5)
-        min_value -= padding
-        max_value += padding
-    # if data type of array is int, add padding to make sure the bin edges are at 0.5 intervals
-    elif np.issubdtype(combined.dtype, np.integer):
-        min_value -= 0.5
-        max_value += 0.5
-
-    return np.linspace(min_value, max_value, bins + 1)
-
-
 def _histogram_bar_trace(
     values,
     bin_edges: np.ndarray,
@@ -202,82 +150,59 @@ def _histogram_bar_trace(
     )
 
 
-def _classification_color_mapping(values_list):
-    """Return discrete colorscale data for classification attributes."""
-    class_values = np.unique(
-        np.concatenate([np.asarray(values).ravel() for values in values_list])
-    )
-    colors = px.colors.qualitative.Set1
-    mapped_colors = [colors[i % len(colors)] for i in range(len(class_values))]
-
-    if len(mapped_colors) == 1:
-        colorscale = [[0.0, mapped_colors[0]], [1.0, mapped_colors[0]]]
-    else:
-        colorscale = []
-        n_colors = len(mapped_colors)
-        for i, color in enumerate(mapped_colors):
-            start = i / n_colors
-            end = (i + 1) / n_colors
-            colorscale.extend([[start, color], [end, color]])
-
-    return class_values, colorscale
-
-
 def plot_3d_scatter(
     reference_pc, compare_pcs: list, attribute: str = None, max_n_points: int = 50_000
 ):
-    # only do subsampling if attributes is not voxel-based
-    if attribute not in reference_pc.voxel_features:
-        # subsample points if necessary
-        reference_pc, _ = subsample_points(reference_pc, max_n_points)
-        compare_pc_sub = [
-            subsample_points(compare_pc, max_n_points)
-            for i, compare_pc in enumerate(compare_pcs)
-        ]
-        compare_pcs, _ = zip(*compare_pc_sub)
 
-        reference_pc_pl = reference_pc.coords
-        compare_pc_pl = [compare_pc.coords for compare_pc in compare_pcs]
+    if attribute is None:
+        logger.info(
+            "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
+        )
+        attribute = "z"
+    logger.info(f"Generating 3D scatter plot colored by {attribute}...")
 
-        if attribute is None:
-            logger.info(
-                "No attribute specified for coloring. Plotting 3D scatter plot colored by z coordinate instead."
-            )
-            attribute = "z"
-        logger.info(f"Generating 3D scatter plot colored by {attribute}...")
-    else:
-        # voxel-based: use centroid points for plotting but attribute values remain
-        # stored in voxel_features
-        reference_pc_pl = reference_pc.voxel_features[attribute][
-            1
-        ]  # closest_to_centroids
-        compare_pc_pl = [
-            compare_pc.voxel_features[attribute][1] for compare_pc in compare_pcs
-        ]
-
-    # get attribute data
-    reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
-        reference_pc, attribute
+    # prepare data and coords using the shared helper
+    (
+        reference_pc_pl,
+        compare_pc_pl,
+        reference_data,
+        compare_data,
+        vmin,
+        vmax,
+        class_values,
+        mapped_colors,
+    ) = prepare_attribute_data(
+        reference_pc, compare_pcs, attribute=attribute, max_n_points=max_n_points
     )
-    compare_data = [
-        pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
-        for compare_pc in compare_pcs
-    ]
-
     # determine plot grid based on inputs
-    fig, nrows, ncols = plot_grid_3d(len(compare_pcs) + 1)
+    total_plots = len(compare_pcs) + 1
+    nrows, ncols, subplot_titles = plot_grid_layout(total_plots)
+    fig = make_subplots(
+        rows=nrows,
+        cols=ncols,
+        subplot_titles=subplot_titles,
+        specs=[[{"type": "scatter3d"} for _ in range(ncols)] for _ in range(nrows)],
+    )
 
     # compute global vmin/vmax for a consistent color scale across subplots
     if attribute == "classification":
-        class_values, colorscale = _classification_color_mapping(
-            [reference_data, *compare_data]
-        )
+        # build colorscale for plotly from mapped colors
+        if class_values is None:
+            class_values, mapped_colors = classification_color_mapping(
+                [reference_data, *compare_data]
+            )
         reference_data = np.searchsorted(class_values, np.asarray(reference_data))
         compare_data = [
             np.searchsorted(class_values, np.asarray(data)) for data in compare_data
         ]
         vmin = 0
         vmax = max(len(class_values) - 1, 0)
+        colorscale = []
+        n_colors = len(mapped_colors)
+        for i, color in enumerate(mapped_colors):
+            start = i / n_colors
+            end = (i + 1) / n_colors
+            colorscale.extend([[start, color], [end, color]])
         colorbar = dict(
             title=attribute,
             tickmode="array",
@@ -285,12 +210,14 @@ def plot_3d_scatter(
             ticktext=[str(value) for value in class_values],
         )
     else:
+        # ensure vmin/vmax set by helper are used; otherwise attempt to infer
         try:
-            vmin = float(np.min(reference_data))
-            vmax = float(np.max(reference_data))
-            for data in compare_data:
-                vmin = min(vmin, float(np.min(data)))
-                vmax = max(vmax, float(np.max(data)))
+            if vmin is None or vmax is None:
+                vmin = float(np.min(reference_data))
+                vmax = float(np.max(reference_data))
+                for data in compare_data:
+                    vmin = min(vmin, float(np.min(data)))
+                    vmax = max(vmax, float(np.max(data)))
         except Exception:
             vmin = None
             vmax = None
@@ -349,10 +276,110 @@ def plot_3d_scatter(
     return fig
 
 
+def plot_3d_scatter_dist_ref(
+    pc, attribute_list: list, max_n_points: int = 50_000, vmax: float = None
+):
+    pc_pl, values, vmin, inferred_vmax = prepare_distance_scatter_ref_data(
+        pc, attribute_list, max_n_points=max_n_points
+    )
+    if vmax is not None:
+        inferred_vmax = vmax
+
+    nrows, ncols, subplot_titles = plot_grid_layout(
+        len(attribute_list), all_comparison=True
+    )
+    fig = make_subplots(
+        rows=nrows,
+        cols=ncols,
+        subplot_titles=subplot_titles,
+        specs=[[{"type": "scatter3d"} for _ in range(ncols)] for _ in range(nrows)],
+    )
+
+    colorscale = "Viridis"
+    colorbar = dict(title="Distance")
+
+    for i in range(len(attribute_list)):
+        row = i // ncols + 1
+        col = i % ncols + 1
+        fig.add_trace(
+            go.Scatter3d(
+                x=pc_pl[:, 0],
+                y=pc_pl[:, 1],
+                z=pc_pl[:, 2],
+                mode="markers",
+                marker=dict(
+                    size=2,
+                    color=values[i],
+                    colorscale=colorscale,
+                    cmin=vmin,
+                    cmax=inferred_vmax,
+                    opacity=0.8,
+                    colorbar=colorbar,
+                ),
+                name="Reference Point Cloud",
+            ),
+            row=row,
+            col=col,
+        )
+
+    fig.update_scenes(aspectmode="data")
+    fig.update_layout(template="plotly_white", showlegend=False)
+    return fig
+
+
+def plot_3d_scatter_dist_comp(
+    pc_list: list, attribute: str, max_n_points: int = 50_000, vmax: float = None
+):
+    pc_pl_list, values, vmin, inferred_vmax = prepare_distance_scatter_comp_data(
+        pc_list, attribute, max_n_points=max_n_points
+    )
+    if vmax is not None:
+        inferred_vmax = vmax
+
+    nrows, ncols, subplot_titles = plot_grid_layout(len(pc_list), all_comparison=True)
+    fig = make_subplots(
+        rows=nrows,
+        cols=ncols,
+        subplot_titles=subplot_titles,
+        specs=[[{"type": "scatter3d"} for _ in range(ncols)] for _ in range(nrows)],
+    )
+
+    colorscale = "Viridis"
+    colorbar = dict(title="Distance")
+
+    for i in range(len(pc_pl_list)):
+        row = i // ncols + 1
+        col = i % ncols + 1
+        fig.add_trace(
+            go.Scatter3d(
+                x=pc_pl_list[i][:, 0],
+                y=pc_pl_list[i][:, 1],
+                z=pc_pl_list[i][:, 2],
+                mode="markers",
+                marker=dict(
+                    size=2,
+                    color=values[i],
+                    colorscale=colorscale,
+                    cmin=vmin,
+                    cmax=inferred_vmax,
+                    opacity=0.8,
+                    colorbar=colorbar,
+                ),
+                name=f"Comparison Point Cloud {i + 1}",
+            ),
+            row=row,
+            col=col,
+        )
+
+    fig.update_scenes(aspectmode="data")
+    fig.update_layout(template="plotly_white", showlegend=False)
+    return fig
+
+
 def plot_histogram(
-    reference_pc,
     compare_pcs: list,
-    attribute: str,
+    attribute: str | list[str],
+    reference_pc=None,
     bins: int = 100,
     overlay: bool = False,
     normalize: bool = False,
@@ -360,12 +387,16 @@ def plot_histogram(
     """
     Plot histograms of an attribute for reference and comparison point clouds side by side.
 
-    :param reference_pc: PointCloud object representing the reference point cloud
     :param compare_pcs: List of PointCloud objects representing the comparison point clouds
-    :param attribute: Name of the attribute to plot
-    :type attribute: str
+    :type compare_pcs: list
+    :param attribute: Name of the attribute to plot or list of names of attributes to plot per point cloud
+    :type attribute: str or list
+    :param reference_pc: PointCloud object representing the reference point cloud
+    :type compare_pcs: PointCloud
     :param bins: Number of bins for the histogram
     :type bins: int
+    :param overlay: Whether to overlay the histograms.
+    :type overlay: bool
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
@@ -381,34 +412,51 @@ def plot_histogram(
         bins = np.unique(reference_pc.classification).size
 
     # get attribute data
-    reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
-        reference_pc, attribute
-    )
-    compare_data = [
-        pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
-        for compare_pc in compare_pcs
-    ]
-    bin_edges = _histogram_bin_edges([reference_data, *compare_data], bins)
+    all_data = []
+    if reference_pc:
+        reference_data = pcfingerprint.pcfingerprint.get_attribute_data(
+            reference_pc, attribute
+        )
+        all_data.append(reference_data)
+    else:
+        reference_data = None
+
+    if isinstance(attribute, str):
+        compare_data = [
+            pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
+            for compare_pc in compare_pcs
+        ]
+        attr_name = attribute
+    elif isinstance(attribute, list):
+        compare_data = [
+            pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attr)
+            for compare_pc in compare_pcs
+            for attr in attribute
+        ]
+        attr_name = attribute[0].split("_")[0]
+    all_data.extend(compare_data)
+    bin_edges = histogram_bin_edges(all_data, bins)
 
     if overlay:  # overlay histograms with transparency
         fig = go.Figure()
-        n_colours = len(compare_pcs) + 1
+        n_colours = len(all_data)
         colors = (
             px.colors.qualitative.Plotly
             if n_colours <= len(px.colors.qualitative.Plotly)
             else px.colors.qualitative.Dark24
         )
         # reference
-        fig.add_trace(
-            _histogram_bar_trace(
-                reference_data,
-                bin_edges,
-                name="Reference Point Cloud",
-                marker_color=colors[0],
-                opacity=0.8,
-                histnorm=histnorm,
+        if reference_data is not None:
+            fig.add_trace(
+                _histogram_bar_trace(
+                    reference_data,
+                    bin_edges,
+                    name="Reference Point Cloud",
+                    marker_color=colors[0],
+                    opacity=0.8,
+                    histnorm=histnorm,
+                )
             )
-        )
         # comparison
         for i, data in enumerate(compare_data):
             color = colors[i + 1]
@@ -422,43 +470,46 @@ def plot_histogram(
                     histnorm=histnorm,
                 )
             )
-        fig.update_layout(barmode="overlay", xaxis_title=attribute, yaxis_title=ylabel)
+        fig.update_layout(barmode="overlay", xaxis_title=attr_name, yaxis_title=ylabel)
 
         return fig
     else:  # plot histograms side by side
         # determine plot grid based on inputs
-        total_plots = len(compare_pcs) + 1
-        fig, nrows, ncols = plot_grid(total_plots)
+        total_plots = len(all_data)
+        has_ref = reference_data != None
+        nrows, ncols, subplot_titles = plot_grid_layout(total_plots)
+        fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=subplot_titles)
 
         # get max frequency to scale y-axis equally
         histnorm = "probability density" if normalize else None
         max_freq = 0
-        for data in [reference_data, *compare_data]:
+        for data in all_data:
             counts, _ = np.histogram(data, bins=bin_edges)
             max_freq = max(max_freq, float(np.max(counts)) if counts.size else 0)
 
-        # ax 0 is always reference pc
-        fig.add_trace(
-            _histogram_bar_trace(
-                reference_data,
-                bin_edges,
-                name="Reference Point Cloud",
-                marker_color="blue",
-                opacity=0.7,
-                histnorm=histnorm,
-                showlegend=False,
-            ),
-            row=1,
-            col=1,
-        )
-        fig.update_xaxes(title_text="", row=1, col=1)
-        fig.update_yaxes(title_text=ylabel, row=1, col=1)
-        if not normalize:
-            fig.update_yaxes(range=[0, max_freq * 1.1], row=1, col=1)
+        # ax 0 is always reference pc - if present
+        if reference_data is not None:
+            fig.add_trace(
+                _histogram_bar_trace(
+                    reference_data,
+                    bin_edges,
+                    name="Reference Point Cloud",
+                    marker_color="blue",
+                    opacity=0.7,
+                    histnorm=histnorm,
+                    showlegend=False,
+                ),
+                row=1,
+                col=1,
+            )
+            fig.update_xaxes(title_text="", row=1, col=1)
+            fig.update_yaxes(title_text=ylabel, row=1, col=1)
+            if not normalize:
+                fig.update_yaxes(range=[0, max_freq * 1.1], row=1, col=1)
         for i, data in enumerate(compare_data):
-            subplot_index = i + 1
-            row = subplot_index // ncols + 1
-            col = subplot_index % ncols + 1
+            subplot_index = i + has_ref
+            row = subplot_index // ncols + has_ref
+            col = subplot_index % ncols + has_ref
             fig.add_trace(
                 _histogram_bar_trace(
                     data,
@@ -512,31 +563,18 @@ def plot_histogram_per_class(
     :param normalize: Whether to normalize the histogram values to show probability density instead of counts.
     :type normalize: bool
     """
-
-    _validate_classes(reference_pc)
-    for compare_pc in compare_pcs:
-        _validate_classes(compare_pc)
-
-    classes = np.unique(reference_pc.classification)
-
+    classes, hists_reference, hists_compare = prepare_histogram_data_per_class(
+        reference_pc, compare_pcs
+    )
     figs = []
-    for compare_pc in compare_pcs:
-        compare_classes = np.unique(compare_pc.classification)
-        classes = np.union1d(classes, compare_classes)
-    for class_value in classes:
-        class_filter_reference = reference_pc.classification == class_value
-        class_filters_compare = [
-            compare_pc.classification == class_value for compare_pc in compare_pcs
-        ]
-        hist_reference_class = reference_pc.mask(class_filter_reference)
-        hist_compare_class = [
-            compare_pc.mask(class_filters_compare[i])
-            for i, compare_pc in enumerate(compare_pcs)
-        ]
+
+    for class_value, hist_reference_class, hist_compare_class in zip(
+        classes, hists_reference, hists_compare
+    ):
         fig = plot_histogram(
-            hist_reference_class,
-            hist_compare_class,
+            compare_pcs=hist_compare_class,
             attribute=attribute,
+            reference_pc=hist_reference_class,
             bins=bins,
             overlay=True,
             normalize=normalize,
