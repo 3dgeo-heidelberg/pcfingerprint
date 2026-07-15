@@ -320,6 +320,100 @@ def test_expand_attribute_parametrized(
             assert e in expanded
 
 
+def test_compute_c2c_distances_basic():
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.reference = pcfingerprint.PointCloud(
+        coords=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+    )
+    pc_pair.compare = [
+        pcfingerprint.PointCloud(
+            coords=np.array([[0.0, 0.0, 0.5], [1.0, 0.0, 2.0], [2.0, 0.0, 0.1]])
+        )
+    ]
+
+    pc_pair.compute_c2c_distances()
+
+    assert "c2c_to-compare-0" in pc_pair.reference.c2c
+    assert "c2c_to-reference" in pc_pair.compare[0].c2c
+
+    forward = pc_pair.reference.c2c["c2c_to-compare-0"]
+    backward = pc_pair.compare[0].c2c["c2c_to-reference"]
+
+    assert forward.shape == (3,)
+    assert backward.shape == (3,)
+
+    # forward: nearest compare point to each reference point (by index)
+    # ref[1]=(1,0,0) is actually closest to compare[2]=(2,0,0.1), not compare[1]
+    np.testing.assert_allclose(forward, [0.5, np.sqrt(1.0**2 + 0.1**2), 0.1])
+    # backward: nearest reference point to each compare point (by index)
+    # compare[1]=(1,0,2.0) is closest to reference[1]=(1,0,0), at distance 2.0
+    np.testing.assert_allclose(backward, [0.5, 2.0, 0.1])
+
+
+def test_compute_c2c_distances_multiple_compare():
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.reference = pcfingerprint.PointCloud(
+        coords=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+    )
+    pc_pair.compare = [
+        pcfingerprint.PointCloud(
+            coords=np.array([[0.0, 0.0, 0.5], [1.0, 0.0, 0.5], [2.0, 0.0, 0.5]])
+        ),
+        pcfingerprint.PointCloud(
+            coords=np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [2.0, 0.0, 1.0]])
+        ),
+    ]
+
+    pc_pair.compute_c2c_distances()
+
+    assert set(pc_pair.reference.c2c.keys()) == {
+        "c2c_to-compare-0",
+        "c2c_to-compare-1",
+    }
+    np.testing.assert_allclose(
+        pc_pair.reference.c2c["c2c_to-compare-0"], [0.5, 0.5, 0.5]
+    )
+    np.testing.assert_allclose(
+        pc_pair.reference.c2c["c2c_to-compare-1"], [1.0, 1.0, 1.0]
+    )
+    assert "c2c_to-reference" in pc_pair.compare[0].c2c
+    assert "c2c_to-reference" in pc_pair.compare[1].c2c
+    np.testing.assert_allclose(
+        pc_pair.compare[0].c2c["c2c_to-reference"], [0.5, 0.5, 0.5]
+    )
+    np.testing.assert_allclose(
+        pc_pair.compare[1].c2c["c2c_to-reference"], [1.0, 1.0, 1.0]
+    )
+
+
+def test_compute_c2c_distances_max_distance():
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.reference = pcfingerprint.PointCloud(
+        coords=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+    )
+    pc_pair.compare = [
+        pcfingerprint.PointCloud(
+            coords=np.array([[0.0, 0.0, 0.5], [1.0, 0.0, 2.0], [2.0, 0.0, 0.1]])
+        )
+    ]
+
+    # without max_distance, the second point has a distance of ~2.24
+    pc_pair.compute_c2c_distances(max_distance=1.0)
+
+    forward = pc_pair.reference.c2c["c2c_to-compare-0"]
+    backward = pc_pair.compare[0].c2c["c2c_to-reference"]
+
+    # distances within the threshold are unaffected
+    assert forward[0] == pytest.approx(0.5)
+    assert forward[2] == pytest.approx(0.1)
+    assert backward[0] == pytest.approx(0.5)
+    assert backward[2] == pytest.approx(0.1)
+
+    # distances beyond max_distance are set to NaN
+    assert np.isnan(forward[1])
+    assert np.isnan(backward[1])
+
+
 def test_histogram_per_class_matplotlib(pc_pair_with_coords_and_attr):
     from pcfingerprint.vis_matplotlib import plot_histogram_per_class
 
