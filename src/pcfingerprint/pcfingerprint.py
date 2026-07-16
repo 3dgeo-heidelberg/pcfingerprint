@@ -10,6 +10,7 @@ from pcfingerprint.geometric_features import (
     compute_geom_feat_jakteristics,
     compute_density_pgeof,
 )
+from pcfingerprint.chunking import run_chunked_computation
 from pcfingerprint.report import generate_report
 from pcfingerprint.utils import (
     shift_to_zero,
@@ -335,6 +336,8 @@ class PointCloudPair:
         radius: float = 2.0,
         max_knn: int = 50_000,
         backend: str = "pgeof",
+        chunking: bool = False,
+        max_points_per_chunk: int | None = None,
     ):
         """
         Compute geometric features for all point clouds in the pair
@@ -347,11 +350,19 @@ class PointCloudPair:
         :type max_knn: int
         :param backend: Backend to use for geometric feature computation. Options are "jakteristics" and "pgeof". If the specified backend does not support certain features, it will automatically fall back to the other backend for those features.
         :type backend: str
+        :param chunking: If True, compute features tile-by-tile using spatial chunking instead of on the whole point cloud at once. Use this for large point clouds where a single-pass computation would exceed available memory. Requires ``max_points_per_chunk`` to be set.
+        :type chunking: bool
+        :param max_points_per_chunk: Maximum number of interior points per spatial tile when ``chunking`` is enabled. Tiles are buffered by at least ``radius`` so results match an unchunked computation.
+        :type max_points_per_chunk: int | None
         """
         # raise error if no point clouds loaded
         if self.reference.coords is None or self.compare == []:
             raise ValueError(
                 "Please load both reference and compare point clouds before computing geometric features."
+            )
+        if chunking and max_points_per_chunk is None:
+            raise ValueError(
+                "Please provide max_points_per_chunk when chunking is enabled."
             )
         # Compute geometric features for all point clouds
         radius = np.round(radius, 3)
@@ -360,15 +371,65 @@ class PointCloudPair:
         density_requested = "density" in requested_features
         feature_names = [f for f in requested_features if f != "density"]
 
+        def _compute(pc, compute_fn, **kwargs):
+            if chunking:
+                run_chunked_computation(
+                    pc, compute_fn, max_points_per_chunk, buffer=radius, **kwargs
+                )
+            else:
+                compute_fn(pc, **kwargs)
+
         if density_requested:
             if backend == "jakteristics":
-                compute_density_jakteristics(self.reference, radius, max_knn)
+                with logger_context(
+                    f"Computing density for reference pc using jakteristics. Search radius: {radius}, max_knn: {max_knn}"
+                ):
+                    _compute(
+                        self.reference,
+                        compute_density_jakteristics,
+                        radius=radius,
+                        max_knn=max_knn,
+                    )
                 for compare_pc in self.compare:
-                    compute_density_jakteristics(compare_pc, radius, max_knn)
+                    name = (
+                        Path(compare_pc.source).name
+                        if compare_pc.source is not None
+                        else "unknown source"
+                    )
+                    with logger_context(
+                        f"Computing density for {name} using jakteristics. Search radius: {radius}, max_knn: {max_knn}"
+                    ):
+                        _compute(
+                            compare_pc,
+                            compute_density_jakteristics,
+                            radius=radius,
+                            max_knn=max_knn,
+                        )
             elif backend == "pgeof":
-                compute_density_pgeof(self.reference, radius, max_knn)
+                with logger_context(
+                    f"Computing density for reference pc using pgeof. Search radius: {radius}, max_knn: {max_knn}"
+                ):
+                    _compute(
+                        self.reference,
+                        compute_density_pgeof,
+                        radius=radius,
+                        max_knn=max_knn,
+                    )
                 for compare_pc in self.compare:
-                    compute_density_pgeof(compare_pc, radius, max_knn)
+                    name = (
+                        Path(compare_pc.source).name
+                        if compare_pc.source is not None
+                        else "unknown source"
+                    )
+                    with logger_context(
+                        f"Computing density for {name} using pgeof. Search radius: {radius}, max_knn: {max_knn}"
+                    ):
+                        _compute(
+                            compare_pc,
+                            compute_density_pgeof,
+                            radius=radius,
+                            max_knn=max_knn,
+                        )
             else:
                 raise ValueError(f"Backend {backend} not supported.")
 
@@ -412,8 +473,12 @@ class PointCloudPair:
             with logger_context(
                 f"Computing geometric features for reference pc using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
             ):
-                compute_geom_feat_jakteristics(
-                    self.reference, jakteristics_features, radius, max_knn
+                _compute(
+                    self.reference,
+                    compute_geom_feat_jakteristics,
+                    feature_names=jakteristics_features,
+                    radius=radius,
+                    max_knn=max_knn,
                 )
             for compare_pc in self.compare:
                 name = (
@@ -424,14 +489,24 @@ class PointCloudPair:
                 with logger_context(
                     f"Computing geometric features for {name} using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
                 ):
-                    compute_geom_feat_jakteristics(
-                        compare_pc, jakteristics_features, radius, max_knn
+                    _compute(
+                        compare_pc,
+                        compute_geom_feat_jakteristics,
+                        feature_names=jakteristics_features,
+                        radius=radius,
+                        max_knn=max_knn,
                     )
         if len(pgeof_features) > 0:
             with logger_context(
                 f"Computing geometric features for reference pc using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
             ):
-                compute_geom_feat_pgeof(self.reference, pgeof_features, radius, max_knn)
+                _compute(
+                    self.reference,
+                    compute_geom_feat_pgeof,
+                    feature_names=pgeof_features,
+                    radius=radius,
+                    max_knn=max_knn,
+                )
             for compare_pc in self.compare:
                 name = (
                     Path(compare_pc.source).name
@@ -441,7 +516,13 @@ class PointCloudPair:
                 with logger_context(
                     f"Computing geometric features for {name} using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
                 ):
-                    compute_geom_feat_pgeof(compare_pc, pgeof_features, radius, max_knn)
+                    _compute(
+                        compare_pc,
+                        compute_geom_feat_pgeof,
+                        feature_names=pgeof_features,
+                        radius=radius,
+                        max_knn=max_knn,
+                    )
 
     def compute_voxel_features(
         self,

@@ -14,16 +14,24 @@ class_mapping = {0: "grass", 1: "ground", 2: "trunk", 3: "canopy"}
 pc_pair = pcfingerprint.PointCloudPair(
     standardize_intensity=False, shift_z=True, class_mapping=class_mapping
 )
-pc_pair.load_reference(data_folder / "plot_10_original_test.laz")
-pc_pair.load_compare(list(data_folder.glob("plot_10_simulated_test.laz")))
+pc_pair.load_reference(data_folder / "plot_10_original_s.laz")
+pc_pair.load_compare(list(data_folder.glob("plot_10_simulated_s.laz")))
 
 # compute density and geometric features
 pc_pair.compute_geometric_features(
-    feature_names=["density"], radius=0.2, backend="jakteristics"
+    feature_names=["density"],
+    radius=0.2,
+    backend="jakteristics",
+    chunking=True,
+    max_points_per_chunk=1_000_000,
 )
 
 pc_pair.compute_geometric_features(
-    feature_names=["linearity"], radius=0.2, backend="pgeof"
+    feature_names=["linearity", "planarity"],
+    radius=0.2,
+    backend="pgeof",
+    chunking=True,
+    max_points_per_chunk=1_000_000,
 )
 
 pc_pair.compute_voxel_features(feature_names=["linearity"], voxel_size=0.2)
@@ -35,6 +43,7 @@ pc_pair.generate_report(
         "z",
         "density_r0.2",
         "linearity_r0.2",
+        "planarity_r0.2",
         "linearity_v0.2",
         "classification",
     ],
