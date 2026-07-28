@@ -3,7 +3,7 @@
 # pcfingerprint
 
 `pcfingerprint` is a Python package for
-- fitness-forpurpose and realism assessment of simulated laser scanning point clouds (checking the domain gap)
+- fitness-for-purpose and realism assessment of simulated laser scanning point clouds (checking the domain gap)
 - improvement of laser scanning simulation settings (e.g., input scene representation and resolution, full waveform settings, etc.)
 - multi-sensor comparisons
 - multi-temporal comparisons
