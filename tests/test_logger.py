@@ -1,8 +1,7 @@
-from pcfingerprint.logger import *
-
 import logging
 import os
-import pytest
+
+from pcfingerprint.logger import *
 
 
 def test_set_loggerfile(tmp_path):

@@ -1,6 +1,9 @@
+from __future__ import annotations
+
+import logging
+
 import numpy as np
 import pandas as pd
-import logging
 
 logger = logging.getLogger("pcfingerprint")
 
@@ -70,9 +73,9 @@ def compute_return_number_metrics(return_number, number_of_returns) -> dict:
     :return: Dictionary of return number metrics
     :rtype: dict
     """
-    assert (
-        return_number.shape == number_of_returns.shape
-    ), "return_number and number_of_returns must have the same shape"
+    assert return_number.shape == number_of_returns.shape, (
+        "return_number and number_of_returns must have the same shape"
+    )
     # convert to numpy arrays if not already
     return_number = np.array(return_number)
     number_of_returns = np.array(number_of_returns)
@@ -135,12 +138,11 @@ def compute_class_distribution_metrics(
             counts = np.append(counts, 0)
 
     # check if class_mapping is provided and unique classes are equal to the keys of class_mapping
-    if class_mapping is not None:
-        if set(unique_classes) != set(class_mapping.keys()):
-            logger.warning(
-                "Unique classes in class_labels do not match keys in class_mapping. "
-                "Some classes may be missing or extra."
-            )
+    if class_mapping is not None and set(unique_classes) != set(class_mapping.keys()):
+        logger.warning(
+            "Unique classes in class_labels do not match keys in class_mapping. "
+            "Some classes may be missing or extra."
+        )
     metrics = {"total points": total_points}
     for cls, count in zip(unique_classes, counts):
         class_name = (

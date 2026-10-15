@@ -1,6 +1,7 @@
-import pcfingerprint
 import numpy as np
 import pytest
+
+import pcfingerprint
 
 # create random seed
 rng = np.random.default_rng(45621231543)
@@ -66,11 +67,11 @@ def test_geometric_features_backend_fallback(pc_pair_with_coords):
 
 def test_voxel_features_different_voxel_sizes(pc_pair_with_coords):
     """Test that different voxel sizes produce different feature values."""
-    vapc_1, _ = pc_pair_with_coords.compute_voxel_features(
+    pc_pair_with_coords.compute_voxel_features(
         voxel_size=0.5, feature_names=["density"]
     )
 
-    vapc_2, _ = pc_pair_with_coords.compute_voxel_features(
+    pc_pair_with_coords.compute_voxel_features(
         voxel_size=1.0, feature_names=["density"]
     )
 
@@ -95,7 +96,7 @@ def test_voxel_features_all_supported(pc_pair_with_coords):
         "surface_variation",
     ]
 
-    vapc_reference, vapc_comparisons = pc_pair_with_coords.compute_voxel_features(
+    pc_pair_with_coords.compute_voxel_features(
         voxel_size=0.5, feature_names=all_features
     )
 
@@ -105,9 +106,7 @@ def test_voxel_features_all_supported(pc_pair_with_coords):
 
 def test_voxel_features_empty_list_computes_all(pc_pair_with_coords):
     """Test that empty feature list computes all available features."""
-    vapc_reference, vapc_comparisons = pc_pair_with_coords.compute_voxel_features(
-        voxel_size=0.5, feature_names=[]
-    )
+    pc_pair_with_coords.compute_voxel_features(voxel_size=0.5, feature_names=[])
 
     # Should compute multiple features when list is empty
     assert len(pc_pair_with_coords.reference.voxel_features) > 1
@@ -115,9 +114,7 @@ def test_voxel_features_empty_list_computes_all(pc_pair_with_coords):
 
 def test_voxel_features_data_structure(pc_pair_with_coords):
     """Test that voxel feature data has correct structure and dimensions."""
-    vapc_reference, vapc_comparisons = pc_pair_with_coords.compute_voxel_features(
-        voxel_size=0.5, feature_names=["count"]
-    )
+    pc_pair_with_coords.compute_voxel_features(voxel_size=0.5, feature_names=["count"])
 
     feat_data = pc_pair_with_coords.reference.voxel_features["count_v0.5"]
     feat_values, voxel_coords, rep_indices = feat_data
@@ -226,7 +223,7 @@ def test_filter_by_class_preserves_voxel_features(pc_pair_with_coords_and_attr):
     pc_pair_filtered = pc_pair_with_coords_and_attr.filter_by_class([1])
 
     for filtered_pc in [pc_pair_filtered.reference, *pc_pair_filtered.compare]:
-        for feat_name, feat_value in filtered_pc.voxel_features.items():
+        for feat_value in filtered_pc.voxel_features.values():
             feat_data, voxel_coords, rep_indices = feat_value
             assert feat_data.shape[0] == voxel_coords.shape[0]
             assert feat_data.shape[0] == rep_indices.shape[0]
@@ -280,7 +277,7 @@ def test_voxel_features_parametrized(
     pc_pair_with_coords, voxel_size, feature_names, expected_feature_names
 ):
     """Parametrized checks for voxel feature computation and presence/structure."""
-    vapc_reference, vapc_comparisons = pc_pair_with_coords.compute_voxel_features(
+    pc_pair_with_coords.compute_voxel_features(
         voxel_size=voxel_size, feature_names=feature_names
     )
     for fname in expected_feature_names:
@@ -328,8 +325,8 @@ def test_sor_parametrized(pc_pair_with_coords, k, std_dev_multiplier, expected_k
     pc_pair_with_coords.compute_statistical_outlier_removal(
         k=k, std_dev_multiplier=std_dev_multiplier
     )
-    for k in expected_keys:
-        assert k in pc_pair_with_coords.reference.sor
+    for key in expected_keys:
+        assert key in pc_pair_with_coords.reference.sor
 
 
 @pytest.mark.parametrize(

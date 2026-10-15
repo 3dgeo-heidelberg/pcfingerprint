@@ -1,7 +1,7 @@
 # logging is copied from the py4dgeo repository: github.com/3dgeo-heidelberg/py4dgeo
 import contextlib
-import sys
 import logging
+import sys
 import time
 
 
@@ -11,10 +11,8 @@ def create_default_logger(filename=None):
 
     # Close and remove existing handlers to avoid duplication and leaks
     for handler in logger.handlers[:]:
-        try:
+        with contextlib.suppress(OSError, ValueError):
             handler.close()
-        except Exception:
-            pass
         logger.removeHandler(handler)
 
     # Apply default for logfile name

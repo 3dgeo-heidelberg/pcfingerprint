@@ -6,7 +6,9 @@ functions used by both `vis_matplotlib.py` and `vis_plotly.py` to
 reduce duplication and keep renderer modules thin.
 """
 
-from typing import List, Optional, Tuple
+from __future__ import annotations
+
+import logging
 import math
 
 import numpy as np
@@ -15,21 +17,23 @@ import plotly.express as px
 import pcfingerprint
 from pcfingerprint.utils import _validate_classes
 
+logger = logging.getLogger("pcfingerprint")
+
 
 def prepare_attribute_data(
     reference_pc,
-    compare_pcs: List,
-    attribute: Optional[str] = None,
+    compare_pcs: list,
+    attribute: str | None = None,
     max_n_points: int = 50_000,
-) -> Tuple[
+) -> tuple[
     np.ndarray,
-    List[np.ndarray],
+    list[np.ndarray],
     np.ndarray,
-    List[np.ndarray],
-    Optional[float],
-    Optional[float],
-    Optional[np.ndarray],
-    Optional[List[str]],
+    list[np.ndarray],
+    float | None,
+    float | None,
+    np.ndarray | None,
+    list[str] | None,
 ]:
     """Prepare coordinates and attribute arrays for rendering.
 
@@ -59,7 +63,7 @@ def prepare_attribute_data(
             pcfingerprint.pcfingerprint.get_attribute_data(compare_pc, attribute)
             for compare_pc in compare_pcs
         ]
-    else:
+    elif attribute is not None:
         reference_pc_sub, _ = subsample_points(reference_pc, max_n_points)
         compare_sub = [subsample_points(pc, max_n_points)[0] for pc in compare_pcs]
         reference_coords = reference_pc_sub.coords
@@ -99,7 +103,12 @@ def prepare_attribute_data(
             if finite.size:
                 vmin = float(np.min(finite))
                 vmax = float(np.max(finite))
-        except Exception:
+        except (ValueError, TypeError):
+            # no arrays to concatenate, or non-numeric dtype (np.isfinite fails)
+            logger.debug(
+                f"Could not infer value range for attribute '{attribute}'; "
+                "falling back to automatic color scaling."
+            )
             vmin = None
             vmax = None
 
@@ -116,8 +125,8 @@ def prepare_attribute_data(
 
 
 def prepare_histogram_data_per_class(
-    series: List[Tuple],
-    reference: Optional[Tuple] = None,
+    series: list[tuple],
+    reference: tuple | None = None,
 ):
     """Split each ``(pc, attribute)`` series by class value found on its own point cloud.
 
@@ -142,8 +151,8 @@ def prepare_histogram_data_per_class(
         np.concatenate([np.unique(pc.classification) for pc in all_pcs])
     )
 
-    reference_per_class = []
-    compare_per_class = []
+    reference_per_class: list[tuple | None] = []
+    compare_per_class: list[list[tuple]] = []
     for class_value in classes:
         if reference is not None:
             ref_pc, ref_attr = reference
@@ -161,7 +170,7 @@ def prepare_histogram_data_per_class(
 
 def plot_grid_layout(
     num_plots: int, all_comparison: bool = False
-) -> Tuple[int, int, List[str]]:
+) -> tuple[int, int, list[str]]:
     """Return nrows, ncols and subplot titles for a grid with `num_plots` slots.
 
     Uses the same simple heuristic as the original modules: 2 columns up to
@@ -184,7 +193,7 @@ def plot_grid_layout(
 
 def prepare_distance_scatter_ref_data(
     pc,
-    attribute_list: List[str],
+    attribute_list: list[str],
     max_n_points: int = 50_000,
 ):
     """Prepare reference point cloud data for distance attribute scatter plots."""
@@ -208,7 +217,7 @@ def prepare_distance_scatter_ref_data(
 
 
 def prepare_distance_scatter_comp_data(
-    pc_list: List,
+    pc_list: list,
     attribute: str,
     max_n_points: int = 50_000,
 ):
@@ -232,7 +241,7 @@ def prepare_distance_scatter_comp_data(
     return coords_list, values, vmin, vmax
 
 
-def histogram_bin_edges(values_list: List, bins: int) -> np.ndarray:
+def histogram_bin_edges(values_list: list, bins: int) -> np.ndarray:
     """Return shared histogram bin edges for multiple data series."""
     arrays = [np.asarray(values) for values in values_list if values is not None]
     if not arrays:
@@ -255,7 +264,7 @@ def histogram_bin_edges(values_list: List, bins: int) -> np.ndarray:
     return np.linspace(min_value, max_value, bins + 1)
 
 
-def classification_color_mapping(values_list: List) -> Tuple[np.ndarray, List[str]]:
+def classification_color_mapping(values_list: list) -> tuple[np.ndarray, list[str]]:
     """Return class values and a list of mapped hex colors for discrete classes."""
     class_values = np.unique(
         np.concatenate([np.asarray(values).ravel() for values in values_list])

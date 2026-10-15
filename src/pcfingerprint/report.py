@@ -2,24 +2,26 @@
 Module for generating comparison reports between point clouds.
 """
 
-from typing import Optional, List, Tuple
-from dataclasses import dataclass, field
-from pathlib import Path
-from functools import partial
+from __future__ import annotations
+
 import base64
-import sys
+import http.server
+import logging
+import socketserver
+import webbrowser
+from dataclasses import dataclass, field
+from functools import partial
 from importlib.resources import files
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from numerous.html_report_generator import Report, Section, Tabs, DataFrameTable, Div
-from numerous.html_report_generator.components.figure import Figure
+from numerous.html_report_generator import DataFrameTable, Report, Section, Tabs
 from numerous.html_report_generator.abstract import ReportInterface
+from numerous.html_report_generator.components.figure import Figure
+
 import pcfingerprint
-import webbrowser
-import http.server
-import socketserver
-import logging
 
 logger = logging.getLogger("pcfingerprint")
 
@@ -42,7 +44,7 @@ def wrap_div(html, class_=None):
         return f"<div>\n{html}\n</div>\n"
 
 
-def serve_report_folder(output_folder: str, open_browser: bool = True):
+def serve_report_folder(output_folder: str | Path, open_browser: bool = True):
     """Serve a generated report folder over HTTP.
 
     :param output_folder: Folder containing the generated report files.
@@ -78,8 +80,9 @@ def inline_report_header_logo(report_file: Path) -> None:
     # If not found in development location, try installed package location
     if not logo_path.exists():
         try:
-            logo_resource = files("pcfingerprint").parent / "pcfingerprint_logo.png"
-            logo_path = Path(str(logo_resource))
+            # Traversable has no ``parent``, so go through a concrete Path
+            package_dir = Path(str(files("pcfingerprint")))
+            logo_path = package_dir.parent / "pcfingerprint_logo.png"
         except (TypeError, AttributeError, ModuleNotFoundError):
             pass
 
@@ -106,20 +109,20 @@ class MatplotlibFigure(Figure):
 
     def __init__(
         self,
-        image_path: Path | str = None,
+        image_path: Path | str,
         caption: str = "",
-        notes: Optional[list[str]] = None,
+        notes: list[str] | None = None,
     ):
         """Initialize a matplotlib-backed report figure.
 
         :param image_name: Path to the matplotlib figure image.
-        :type image_name: pathlib.Path | None
+        :type image_name: pathlib.Path | str
         :param caption: Caption text for the figure.
         :type caption: str
         :param notes: Optional notes to be added to the caption.
         :type notes: list[str] | None
         """
-        super(MatplotlibFigure, self).__init__(caption, notes)
+        super().__init__(caption, notes)
         self.image_path = image_path
 
     def _as_html_figure_content(self, report: ReportInterface):
@@ -144,20 +147,20 @@ class IFrameFigure(Figure):
 
     def __init__(
         self,
-        html_path: Path | str = None,
+        html_path: Path | str,
         caption: str = "",
-        notes: Optional[list[str]] = None,
+        notes: list[str] | None = None,
     ):
         """Initialize an iframe-backed report figure.
 
         :param html_path: Path to the HTML file rendered in the iframe.
-        :type html_path: pathlib.Path | None
+        :type html_path: pathlib.Path | str
         :param caption: Caption text for the figure.
         :type caption: str
         :param notes: Optional notes to include with the caption.
         :type notes: list[str] | None
         """
-        super(IFrameFigure, self).__init__(caption, notes)
+        super().__init__(caption, notes)
         self.html_path = html_path
 
     def _as_html_figure_content(self, report: ReportInterface):
@@ -184,11 +187,11 @@ class FigureSelection(Figure):
 
     def __init__(
         self,
-        figure_paths: List[Path],
-        figure_labels: List[str],
+        figure_paths: list[Path],
+        figure_labels: list[str],
         render_mode: str = "image",
         caption: str = "",
-        notes: Optional[list[str]] = None,
+        notes: list[str] | None = None,
     ):
         """Initialize a dropdown-controlled figure selection.
 
@@ -331,8 +334,8 @@ class Metric:
 
     key: str
     display_name: str
-    reference: Optional[Tuple] = None
-    compares: List[Tuple] = field(default_factory=list)
+    reference: tuple | None = None
+    compares: list[tuple] = field(default_factory=list)
     skip_summary: bool = False
     skip_per_class: bool = False
 
@@ -343,7 +346,7 @@ def _attribute_metrics(
     attribute_list: list,
     class_distribution: bool,
     return_number_metrics: bool,
-) -> List[Metric]:
+) -> list[Metric]:
     """Build one Metric per attribute in ``attribute_list``."""
     metrics = []
     for attribute in attribute_list:
@@ -368,7 +371,7 @@ def _distance_metrics(
     reference_pc,
     compare_pcs: list,
     distance_list: list,
-) -> List[Metric]:
+) -> list[Metric]:
     """Build forward/backward Metrics per distance category (e.g. "c2c") in ``distance_list``.
 
     Distances have no true reference-side counterpart: forward distances
@@ -380,7 +383,7 @@ def _distance_metrics(
     """
     if not distance_list:
         return []
-    categories = sorted(set(d.split("_")[0] for d in distance_list))
+    categories = sorted({d.split("_")[0] for d in distance_list})
     metrics = []
     for category in categories:
         metrics.append(
@@ -442,7 +445,7 @@ def _summary_stats_table(metric: Metric):
         df["Reference"] = [stats_reference[k] for k in keys]
         df["Reference"] = df["Reference"].astype(object)
     for i, s_stats in enumerate(stats_compares):
-        col = f"Comparison {i+1}"
+        col = f"Comparison {i + 1}"
         df[col] = [s_stats[k] for k in keys]
         df[col] = df[col].astype(object)
 
@@ -501,7 +504,7 @@ def _histogram_content(report, metric: Metric, overlay: bool, vis_backend: str):
 
 
 def _histogram_per_class_content(
-    report, metric: Metric, vis_backend: str, class_mapping: Optional[dict]
+    report, metric: Metric, vis_backend: str, class_mapping: dict | None
 ):
     """Build a FigureSelection with one panel per class value for a metric (both norm variants)."""
     if vis_backend == "matplotlib":
@@ -562,7 +565,7 @@ def _render_metric(
     summary_statistics: bool,
     visualizations: list,
     vis_backend: str,
-    class_mapping: Optional[dict],
+    class_mapping: dict | None,
 ) -> dict:
     """Render one metric's requested content pieces (table / histogram / histogram-per-class)."""
     content = {}
@@ -587,12 +590,12 @@ def _render_metric(
 def _add_metrics_to_section(
     report,
     section,
-    metrics: List[Metric],
+    metrics: list[Metric],
     *,
     summary_statistics: bool,
     visualizations: list,
     vis_backend: str,
-    class_mapping: Optional[dict],
+    class_mapping: dict | None,
 ) -> bool:
     """Render ``metrics`` and attach non-empty table/histogram/per-class tabs to ``section``.
 
@@ -637,15 +640,15 @@ def _add_metrics_to_section(
 def generate_report(
     reference_pc,
     compare_pcs: list,
-    output_folder: str,
+    output_folder: str | Path,
     attribute_list: list[str],
-    distance_list: list[str] = None,
+    distance_list: list[str] | None = None,
     summary_statistics: bool = True,
     outlier_statistics: bool = False,
     return_number_metrics: bool = False,
     class_distribution: bool = False,
-    class_mapping: Optional[dict[int, str]] = None,
-    visualizations: list[str] = ["histogram"],
+    class_mapping: dict[int, str] | None = None,
+    visualizations: list[str] | None = None,
     vis_backend: str = "matplotlib",
     preview: bool = True,
 ):
@@ -677,8 +680,11 @@ def generate_report(
     :return: None
     :rtype: None
     """
-    output_folder = Path(output_folder)
-    output_folder.mkdir(parents=True, exist_ok=True)
+    if visualizations is None:
+        visualizations = ["histogram"]
+
+    output_path = Path(output_folder)
+    output_path.mkdir(parents=True, exist_ok=True)
 
     if summary_statistics or return_number_metrics:
         from pcfingerprint import stats
@@ -686,7 +692,7 @@ def generate_report(
     # Create report
     filename = "index.html"
     report = Report(
-        target_folder=output_folder,
+        target_folder=output_path,
         filename=filename,
         template="src/pcfingerprint/templates/report_template_fingerprint.html",
     )
@@ -697,20 +703,20 @@ def generate_report(
         header="Point Cloud Fingerprint",
         title="Report",
         sub_title=f"Comparison between {reference_pc.source} and {len(compare_pcs)} comparison point clouds",
-        sub_sub_title=f'Attributes: {", ".join(attribute_list)}',
+        sub_sub_title=f"Attributes: {', '.join(attribute_list)}",
     )
 
     block_content = {}
 
-    section = Section(section_title=f"Overview of Point Cloud Files")
+    section = Section(section_title="Overview of Point Cloud Files")
     # start with overview of files, as table
 
     # create a pandas dataframe from this
     df = pd.DataFrame(columns=["Dataset", "Filename"])
     df["Dataset"] = ["Reference"] + [
-        f"Comparison {i+1}" for i in range(len(compare_pcs))
+        f"Comparison {i + 1}" for i in range(len(compare_pcs))
     ]
-    filenames = []
+    filenames: list[str | None] = []
     try:
         filenames.append(Path(reference_pc.source).as_posix())
     except TypeError:
@@ -727,7 +733,7 @@ def generate_report(
 
     # section for 3D scatter plot
     if "3d_scatter" in visualizations and len(attribute_list) > 0:
-        section = Section(section_title=f"3D Scatter Plot Comparison")
+        section = Section(section_title="3D Scatter Plot Comparison")
         scatter_tabs = Tabs()
         if len(attribute_list) == 0:
             plot_attribute_list = ["z"]
@@ -738,10 +744,14 @@ def generate_report(
         # generate 3d scatter plot
         if vis_backend == "matplotlib":
             # if using matplotlib, we generate a static PNG image file and reference it from the HTML report
-            from pcfingerprint.vis_matplotlib import plot_3d_scatter
+            from pcfingerprint.vis_matplotlib import (
+                plot_3d_scatter as plot_3d_scatter_mpl,
+            )
 
             for attribute in plot_attribute_list:
-                fig = plot_3d_scatter(reference_pc, compare_pcs, attribute=attribute)
+                fig = plot_3d_scatter_mpl(
+                    reference_pc, compare_pcs, attribute=attribute
+                )
                 # save the figure to a file in the report folder and add it to the report
                 img_file = (
                     report.target_folder
@@ -756,12 +766,16 @@ def generate_report(
                 )
         elif vis_backend == "plotly":
             from pcfingerprint.vis_plotly import (
-                plot_3d_scatter,
+                plot_3d_scatter as plot_3d_scatter_plotly,
+            )
+            from pcfingerprint.vis_plotly import (
                 write_html_with_linked_3d_camera,
             )
 
             for attribute in plot_attribute_list:
-                fig = plot_3d_scatter(reference_pc, compare_pcs, attribute=attribute)
+                fig = plot_3d_scatter_plotly(
+                    reference_pc, compare_pcs, attribute=attribute
+                )
                 fig_file = (
                     report.target_folder
                     / IMG_FOLDER
@@ -784,7 +798,7 @@ def generate_report(
         block_content["section_3d_scatter"] = section
 
     # Section for attribute comparisons
-    section = Section(section_title=f"Attribute Comparisons")
+    section = Section(section_title="Attribute Comparisons")
     attribute_metrics = _attribute_metrics(
         reference_pc,
         compare_pcs,
@@ -805,8 +819,8 @@ def generate_report(
         block_content["section_attribute_comparisons"] = section
 
     if outlier_statistics:
-        section = Section(section_title=f"Outlier Statistics")
-        logger.info(f"Computing outlier statistics...")
+        section = Section(section_title="Outlier Statistics")
+        logger.info("Computing outlier statistics...")
         # compute outlier statistics
         if len(reference_pc.sor.keys()) == 0 or any(
             len(compare_pc.sor.keys()) == 0 for compare_pc in compare_pcs
@@ -818,10 +832,10 @@ def generate_report(
             if len(reference_pc.sor.keys()) > 1:
                 logger.warning("Multiple SOR outlier flags found. Using the first one.")
             outliers_reference = reference_pc.sor[
-                list(reference_pc.sor.keys())[0]
+                next(iter(reference_pc.sor.keys()))
             ].astype(bool)
             outliers_compare = [
-                compare_pc.sor[list(compare_pc.sor.keys())[0]].astype(bool)
+                compare_pc.sor[next(iter(compare_pc.sor.keys()))].astype(bool)
                 for compare_pc in compare_pcs
             ]
             num_outliers_reference = np.sum(outliers_reference)
@@ -831,11 +845,11 @@ def generate_report(
             outlier_df = pd.DataFrame(
                 {
                     "Point Cloud": ["Reference"]
-                    + [f"Comparison {i+1}" for i in range(len(compare_pcs))],
+                    + [f"Comparison {i + 1}" for i in range(len(compare_pcs))],
                     "Number of Inliers": [np.sum(~outliers_reference)]
                     + [np.sum(~outliers) for outliers in outliers_compare],
                     "Number of Outliers": [num_outliers_reference]
-                    + [num_outliers for num_outliers in num_outliers_compare],
+                    + [*num_outliers_compare],
                     "Percentage of Outliers": [
                         num_outliers_reference / reference_pc.coords.shape[0]
                     ]
@@ -866,8 +880,8 @@ def generate_report(
             block_content["section_outlier_statistics"] = section
 
     if class_distribution:
-        section = Section(section_title=f"Class Distribution Metrics")
-        logger.info(f"Computing class distribution metrics...")
+        section = Section(section_title="Class Distribution Metrics")
+        logger.info("Computing class distribution metrics...")
         # determine all unique classes (also non-overlapping)
         unique_classes = np.unique(
             np.concatenate(
@@ -896,14 +910,14 @@ def generate_report(
         df = pd.DataFrame(
             {
                 "Metrics": keys,
-                f"Reference": [metrics_reference[k] for k in keys],
+                "Reference": [metrics_reference[k] for k in keys],
             }
         )
         df["Reference"] = df["Reference"].astype(object)
         # add a column for each comparison pc
         for i, s_metrics in enumerate(metrics_compare):
-            df[f"Comparison {i+1}"] = [s_metrics[k] for k in keys]
-            df[f"Comparison {i+1}"] = df[f"Comparison {i+1}"].astype(object)
+            df[f"Comparison {i + 1}"] = [s_metrics[k] for k in keys]
+            df[f"Comparison {i + 1}"] = df[f"Comparison {i + 1}"].astype(object)
         # row formatting
         for k in keys:
             if "fraction" in k:
@@ -922,9 +936,9 @@ def generate_report(
 
     # section for distance metrics
     if distance_list is not None and len(distance_list) > 0:
-        section = Section(section_title=f"Distance Metrics")
+        section = Section(section_title="Distance Metrics")
 
-        tab_categories = set([d.split("_")[0] for d in distance_list])
+        tab_categories = {d.split("_")[0] for d in distance_list}
         if "3d_scatter_distances" in visualizations:
             scatter_tabs_ref = Tabs()
             scatter_tabs_comp = Tabs()
@@ -933,8 +947,8 @@ def generate_report(
             if vis_backend == "matplotlib":
                 for dist_category in tab_categories:
                     from pcfingerprint.vis_matplotlib import (
-                        plot_3d_scatter_dist_ref,
                         plot_3d_scatter_dist_comp,
+                        plot_3d_scatter_dist_ref,
                     )
 
                     dist_ref = [
@@ -974,8 +988,8 @@ def generate_report(
             elif vis_backend == "plotly":
                 for dist_category in tab_categories:
                     from pcfingerprint.vis_plotly import (
-                        plot_3d_scatter_dist_ref,
                         plot_3d_scatter_dist_comp,
+                        plot_3d_scatter_dist_ref,
                         write_html_with_linked_3d_camera,
                     )
 
@@ -1038,9 +1052,9 @@ def generate_report(
 
     # section for return number metrics
     if return_number_metrics:
-        section = Section(section_title=f"Return Number Metrics")
+        section = Section(section_title="Return Number Metrics")
 
-        logger.info(f"Computing return number metrics...")
+        logger.info("Computing return number metrics...")
         # compute return number statistics
         metrics_reference = stats.compute_return_number_metrics(
             reference_pc.return_number, reference_pc.number_of_returns
@@ -1057,14 +1071,14 @@ def generate_report(
         df = pd.DataFrame(
             {
                 "Statistics": keys,
-                f"Reference": [metrics_reference[k] for k in keys],
+                "Reference": [metrics_reference[k] for k in keys],
             }
         )
         df["Reference"] = df["Reference"].astype(object)
         # add a column for each comparison pc
         for i, s_metrics in enumerate(metrics_compare):
-            df[f"Comparison {i+1}"] = [s_metrics[k] for k in keys]
-            df[f"Comparison {i+1}"] = df[f"Comparison {i+1}"].astype(object)
+            df[f"Comparison {i + 1}"] = [s_metrics[k] for k in keys]
+            df[f"Comparison {i + 1}"] = df[f"Comparison {i + 1}"].astype(object)
         # row formatting
         for k in keys:
             if "fraction" in k:

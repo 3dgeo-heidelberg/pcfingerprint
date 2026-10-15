@@ -2,18 +2,21 @@
 Module for visualisations on comparisons between point clouds.
 """
 
+from __future__ import annotations
+
+import logging
+
 import matplotlib.pyplot as plt
+import numpy as np
+
 import pcfingerprint
-from pcfingerprint.utils import subsample_points, _validate_classes
 from pcfingerprint.vis_common import (
-    prepare_attribute_data,
     plot_grid_layout,
+    prepare_attribute_data,
     prepare_distance_scatter_comp_data,
     prepare_distance_scatter_ref_data,
     prepare_histogram_data_per_class,
 )
-import numpy as np
-import logging
 
 logger = logging.getLogger("pcfingerprint")
 
@@ -40,7 +43,7 @@ def style_axis(ax):
 def plot_3d_scatter(
     reference_pc,
     compare_pcs: list,
-    attribute: str = None,
+    attribute: str | None = None,
     max_n_points: int = 500_000,
     overlay: bool = False,
 ):
@@ -67,7 +70,7 @@ def plot_3d_scatter(
         vmin,
         vmax,
         class_values,
-        mapped_colors,
+        _,
     ) = prepare_attribute_data(
         reference_pc, compare_pcs, attribute=attribute, max_n_points=max_n_points
     )
@@ -102,7 +105,7 @@ def plot_3d_scatter(
                 compare_pc_pl[i][:, 2],
                 c=color,
                 s=0.1,
-                label=f"Comparison Point Cloud {i+1}",
+                label=f"Comparison Point Cloud {i + 1}",
             )
         ax.set_title("3D Scatter Plot of Point Clouds")
         ax.set_xlabel("X")
@@ -186,7 +189,7 @@ def plot_3d_scatter(
                 vmin=vmin,
                 vmax=vmax,
             )
-            axs[row, col].set_title(f"Comparison Point Cloud {i+1}")
+            axs[row, col].set_title(f"Comparison Point Cloud {i + 1}")
             style_axis(axs[row, col])
             # equal scaling
             axs[row, col].set_aspect("equal")
@@ -205,7 +208,7 @@ def plot_3d_scatter(
 
 
 def plot_3d_scatter_dist_ref(
-    pc, attribute_list: list, max_n_points: int = 50_000, vmax: float = None
+    pc, attribute_list: list, max_n_points: int = 50_000, vmax: float | None = None
 ):
     """
     Create a 3D scatter plot of the reference point cloud, colored by the specified distance attributes.
@@ -273,7 +276,10 @@ def plot_3d_scatter_dist_ref(
 
 
 def plot_3d_scatter_dist_comp(
-    pc_list: list, attribute: str, max_n_points: int = 50_000, vmax: float = None
+    pc_list: list,
+    attribute: str,
+    max_n_points: int = 50_000,
+    vmax: float | None = None,
 ):
     """
     Create a 3D scatter plot of the comparison point clouds, colored by the specified distance attribute.
@@ -330,7 +336,7 @@ def plot_3d_scatter_dist_comp(
             vmax=inferred_vmax,
         )
         style_axis(axs[row, col])
-        axs[row, col].set_title(f"Comparison Point Cloud {i+1} - {attribute}")
+        axs[row, col].set_title(f"Comparison Point Cloud {i + 1} - {attribute}")
         axs[row, col].set_aspect("equal")
 
     # colorbar to the right side spanning all rows
@@ -393,7 +399,7 @@ def plot_histogram(
     if overlay:  # overlay histograms with transparency
         fig, ax = plt.subplots(figsize=(8, 6))
         n_colours = total_n_plots
-        colors = plt.cm.get_cmap("tab10", n_colours)
+        colors = plt.get_cmap("tab10", n_colours)
         # reference
         if reference_data is not None:
             ax.hist(
@@ -414,7 +420,7 @@ def plot_histogram(
                 bins=bins,
                 color=color,
                 alpha=0.3,
-                label=f"Comparison Point Cloud {i+1}",
+                label=f"Comparison Point Cloud {i + 1}",
                 density=normalize,
             )
             # 2. draw: only edges with full color
@@ -441,7 +447,9 @@ def plot_histogram(
     else:  # plot histograms side by side
         # determine plot grid based on inputs
         has_reference = reference_data is not None
-        nrows, ncols = plot_grid_layout(total_n_plots, all_comparison=not has_reference)
+        nrows, ncols, _ = plot_grid_layout(
+            total_n_plots, all_comparison=not has_reference
+        )
         fig, axs = plt.subplots(nrows, ncols, figsize=(12, 5))
 
         # Ensure axs is always 2D for consistent indexing
@@ -473,7 +481,7 @@ def plot_histogram(
             axs[row, col].hist(
                 data, bins=bins, color="orange", alpha=0.7, density=normalize
             )
-            axs[row, col].set_title(f"Comparison Point Cloud {i+1}")
+            axs[row, col].set_title(f"Comparison Point Cloud {i + 1}")
             axs[row, col].set_ylabel(ylabel)
             # add minor ticks
             axs[row, col].minorticks_on()

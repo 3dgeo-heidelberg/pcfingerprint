@@ -1,5 +1,6 @@
-import pcfingerprint
 from pathlib import Path
+
+import pcfingerprint
 
 # define input and output paths
 script_path = Path(__file__).parent

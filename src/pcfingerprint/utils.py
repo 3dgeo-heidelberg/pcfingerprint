@@ -1,6 +1,9 @@
-from pathlib import Path
-import numpy as np
+from __future__ import annotations
+
 import logging
+from pathlib import Path
+
+import numpy as np
 
 logger = logging.getLogger("pcfingerprint")
 
@@ -171,13 +174,9 @@ def subsample_points(pc, max_n_points: int = 500_000):
 
 
 def _validate_classes(pc):
-    try:
-        getattr(pc, "classification")
-    except AttributeError:
+    classification = getattr(pc, "classification", None)
+    if classification is None or len(classification) == 0:
         raise ValueError(
-            f"Point cloud does not have 'classification' attribute, cannot plot histogram per class."
-        )
-    if pc.classification is None or len(pc.classification) == 0:
-        raise ValueError(
-            f"Point cloud has empty 'classification' attribute, cannot plot histogram per class."
+            "Point cloud has no or empty 'classification' attribute, "
+            "cannot plot histogram per class."
         )

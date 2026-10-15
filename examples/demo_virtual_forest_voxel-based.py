@@ -1,5 +1,6 @@
-import pcfingerprint
 from pathlib import Path
+
+import pcfingerprint
 from pcfingerprint.pcfingerprint import write_voxelized_point_clouds
 
 # define input and output paths

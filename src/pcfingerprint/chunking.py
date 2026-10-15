@@ -12,9 +12,10 @@ tile edges as it would on the full point cloud. Only the non-overlap
 interior points of each tile are kept when merging results back.
 """
 
-from types import SimpleNamespace
-import numpy as np
 import logging
+from types import SimpleNamespace
+
+import numpy as np
 
 logger = logging.getLogger("pcfingerprint")
 
