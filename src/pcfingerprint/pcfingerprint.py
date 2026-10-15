@@ -1,27 +1,32 @@
-import warnings
+from __future__ import annotations
+
 import logging
-import numpy as np
+import warnings
+from collections.abc import Sequence
+from pathlib import Path
+
+import jakteristics
 import laspy
+import numpy as np
 import py4dgeo
+from pgeof import EFeatureID
+
+from pcfingerprint.chunking import run_chunked_computation
 from pcfingerprint.geometric_features import (
+    compute_density_jakteristics,
+    compute_density_pgeof,
+    compute_geom_feat_jakteristics,
     compute_geom_feat_pgeof,
     compute_geom_feat_vapc,
-    compute_density_jakteristics,
-    compute_geom_feat_jakteristics,
-    compute_density_pgeof,
 )
-from pcfingerprint.chunking import run_chunked_computation
+from pcfingerprint.logger import logger_context
 from pcfingerprint.report import generate_report
 from pcfingerprint.utils import (
+    match_representative_points_to_indices,
+    scale_robust,
     shift_to_zero,
     standardize,
-    scale_robust,
-    match_representative_points_to_indices,
 )
-from pathlib import Path
-from pgeof import EFeatureID
-import jakteristics
-from pcfingerprint.logger import logger_context
 
 logger = logging.getLogger("pcfingerprint")
 
@@ -44,9 +49,7 @@ class PointCloud:
         self.intensity = intensity  # int array
         self.classification = classification  # int array for point classification
         self.geometric_features = {}  # dict of feature name to float array
-        self.voxel_features = (
-            {}
-        )  # dict of feature name to float array for voxel-based features
+        self.voxel_features = {}  # dict of feature name to float array for voxel-based features
         self.c2c = {}  # dict of cloud-to-cloud distances
         self.sor = {}  # dict for statistical outlier removal
 
@@ -199,7 +202,7 @@ class PointCloudPair:
     ):
         self.reference = PointCloud()
         # compare is a list of PointClouds (minimum 1)
-        self.compare = []
+        self.compare: list[PointCloud] = []
         self.shift_z = shift_z
         self.shift_gps_time = shift_gps_time
         self.standardize_intensity = standardize_intensity
@@ -224,7 +227,7 @@ class PointCloudPair:
                 for pc in all_pcs:
                     setattr(pc, attr, None)
 
-    def load_reference(self, filepath: str):
+    def load_reference(self, filepath: str | Path):
         """
         Load the reference point cloud from a file. Supported formats are LAS/LAZ and XYZ.
 
@@ -258,15 +261,15 @@ class PointCloudPair:
         if self.compare != []:
             self.drop_attributes()
 
-    def load_compare(self, filepaths: list[str] | str):
+    def load_compare(self, filepaths: Sequence[str | Path] | str | Path):
         """
         Load comparison point cloud(s) from file(s).
-        Users can provide both a single file path (str) and list of file paths (list[str]).
+        Users can provide both a single file path (str or Path) and a list of file paths.
 
-        :param filepaths: File path(s) to load. Can be a single file path (str) or a list of file paths (list[str]). Supported formats are LAS/LAZ and XYZ.
-        :type filepaths: list[str] | str
+        :param filepaths: File path(s) to load. Can be a single file path or a sequence of file paths (str or Path). Supported formats are LAS/LAZ and XYZ.
+        :type filepaths: Sequence[str | Path] | str | Path
         """
-        if isinstance(filepaths, str) or isinstance(filepaths, Path):
+        if isinstance(filepaths, (str, Path)):
             filepaths = [filepaths]
         for filepath in filepaths:
             logger.info(f"Loading comparison point cloud from {filepath}...")
@@ -592,7 +595,7 @@ class PointCloudPair:
             c2c_rev = py4dgeo.C2C(
                 epochs=(compare_epoch, reference_epoch), max_distance=max_distance
             )
-            compare_pc.c2c[f"c2c_to-reference"] = c2c_rev.run()
+            compare_pc.c2c["c2c_to-reference"] = c2c_rev.run()
 
     def filter_by_class(self, classes: list[int]):
         """
@@ -726,17 +729,20 @@ class PointCloudPair:
 
     def generate_report(
         self,
-        output_folder: str,
-        attribute_list: list[str] = None,
-        distance_list: list[str] = None,
+        output_folder: str | Path,
+        attribute_list: list[str] | None,
+        distance_list: list[str] | None = None,
         summary_statistics: bool = True,
         class_distribution: bool = False,
         outlier_statistics: bool = False,
         return_number_metrics: bool = False,
-        visualizations: list[str] = ["histogram_overlay"],
+        visualizations: list[str] | None = None,
         vis_backend: str = "matplotlib",
         preview: bool = True,
     ):
+        if visualizations is None:
+            visualizations = ["histogram_overlay"]
+
         # raise error if no point clouds loaded
         if self.reference.coords is None or self.compare == []:
             raise ValueError(
@@ -790,7 +796,7 @@ class PointCloudPair:
             preview=preview,
         )
 
-    def write_point_clouds(self, output_folder: str) -> None:
+    def write_point_clouds(self, output_folder: str | Path) -> None:
         """
         Write the reference and comparison point clouds with all newly computed attributes to the specified output folder as LAS files.
         The output files will have the same names as the input files.
@@ -814,7 +820,7 @@ class PointCloudPair:
 
 
 def write_voxelized_point_clouds(
-    vapc, filebase: str, reduce_to_feature="closest_to_centroids"
+    vapc, filebase: str | Path, reduce_to_feature="closest_to_centroids"
 ) -> None:
     """
     Write voxelized point cloud (with voxel-based features) to disk as a LAS file
@@ -894,7 +900,7 @@ def read_xyz_file(filepath):
     """
     # find delimiter by checking the first line for common delimiters
     delimiter = None
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         first_line = f.readline()
         for d in [",", "\t", " ", ";"]:
             # needs to occur at least twice in the first line to be considered a delimiter
@@ -903,7 +909,7 @@ def read_xyz_file(filepath):
                 break
 
     # check if it has a header
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         first_line = f.readline()
         has_header = not all(
             c.isdigit() or c.isspace() or c == "." for c in first_line
@@ -946,7 +952,7 @@ def read_xyz_file(filepath):
 
 def write_las(
     pc: PointCloud,
-    outfile: str,
+    outfile: str | Path,
     las_point_format=7,
     las_version="1.4",
     las_scales=None,

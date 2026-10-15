@@ -2,26 +2,25 @@
 Module for visualisations on comparisons between point clouds.
 """
 
-import math
+from __future__ import annotations
+
+import logging
 
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from jinja2 import Template
+
 import pcfingerprint
-from pcfingerprint.utils import subsample_points, _validate_classes
 from pcfingerprint.vis_common import (
-    prepare_attribute_data,
+    classification_color_mapping,
+    histogram_bin_edges,
     plot_grid_layout,
+    prepare_attribute_data,
     prepare_distance_scatter_comp_data,
     prepare_distance_scatter_ref_data,
-    histogram_bin_edges,
-    classification_color_mapping,
     prepare_histogram_data_per_class,
 )
-
-import logging
 
 logger = logging.getLogger("pcfingerprint")
 
@@ -101,6 +100,7 @@ def write_html_with_linked_3d_camera(fig: go.Figure, file, **kwargs):
 
     kwargs.setdefault("config", {"responsive": True})
 
+    post_script: str | list[str]
     if existing_post_script is None:
         post_script = linked_script
     elif isinstance(existing_post_script, str):
@@ -117,7 +117,7 @@ def _histogram_bar_trace(
     name: str,
     marker_color: str,
     opacity: float,
-    histnorm: str = None,
+    histnorm: str | None = None,
     showlegend: bool = True,
 ) -> go.Bar:
     """Create a lightweight bar trace that mimics a Plotly histogram."""
@@ -151,7 +151,10 @@ def _histogram_bar_trace(
 
 
 def plot_3d_scatter(
-    reference_pc, compare_pcs: list, attribute: str = None, max_n_points: int = 50_000
+    reference_pc,
+    compare_pcs: list,
+    attribute: str | None = None,
+    max_n_points: int = 50_000,
 ):
 
     if attribute is None:
@@ -185,9 +188,10 @@ def plot_3d_scatter(
     )
 
     # compute global vmin/vmax for a consistent color scale across subplots
+    colorscale: str | list[list[object]]
     if attribute == "classification":
         # build colorscale for plotly from mapped colors
-        if class_values is None:
+        if class_values is None or mapped_colors is None:
             class_values, mapped_colors = classification_color_mapping(
                 [reference_data, *compare_data]
             )
@@ -203,26 +207,17 @@ def plot_3d_scatter(
             start = i / n_colors
             end = (i + 1) / n_colors
             colorscale.extend([[start, color], [end, color]])
-        colorbar = dict(
-            title=attribute,
-            tickmode="array",
-            tickvals=list(range(len(class_values))),
-            ticktext=[str(value) for value in class_values],
-        )
+        colorbar = {
+            "title": attribute,
+            "tickmode": "array",
+            "tickvals": list(range(len(class_values))),
+            "ticktext": [str(value) for value in class_values],
+        }
     else:
-        # ensure vmin/vmax set by helper are used; otherwise attempt to infer
-        try:
-            if vmin is None or vmax is None:
-                vmin = float(np.min(reference_data))
-                vmax = float(np.max(reference_data))
-                for data in compare_data:
-                    vmin = min(vmin, float(np.min(data)))
-                    vmax = max(vmax, float(np.max(data)))
-        except Exception:
-            vmin = None
-            vmax = None
+        # vmin/vmax come from prepare_attribute_data; if they are None, plotly
+        # falls back to automatic color scaling
         colorscale = "Viridis"
-        colorbar = dict(title=attribute)
+        colorbar = {"title": attribute}
 
     # reference world
     fig.add_trace(
@@ -231,15 +226,15 @@ def plot_3d_scatter(
             y=reference_pc_pl[:, 1],
             z=reference_pc_pl[:, 2],
             mode="markers",
-            marker=dict(
-                size=2,
-                color=reference_data,
-                colorscale=colorscale,
-                cmin=vmin,
-                cmax=vmax,
-                opacity=0.8,
-                colorbar=colorbar,
-            ),
+            marker={
+                "size": 2,
+                "color": reference_data,
+                "colorscale": colorscale,
+                "cmin": vmin,
+                "cmax": vmax,
+                "opacity": 0.8,
+                "colorbar": colorbar,
+            },
             name="Reference Point Cloud",
         ),
         row=1,
@@ -257,14 +252,14 @@ def plot_3d_scatter(
                 y=compare_pc_pl[i][:, 1],
                 z=compare_pc_pl[i][:, 2],
                 mode="markers",
-                marker=dict(
-                    size=2,
-                    color=compare_data[i],
-                    colorscale=colorscale,
-                    cmin=vmin,
-                    cmax=vmax,
-                    opacity=0.8,
-                ),
+                marker={
+                    "size": 2,
+                    "color": compare_data[i],
+                    "colorscale": colorscale,
+                    "cmin": vmin,
+                    "cmax": vmax,
+                    "opacity": 0.8,
+                },
                 name=f"Comparison Point Cloud {i + 1}",
             ),
             row=row,
@@ -277,7 +272,7 @@ def plot_3d_scatter(
 
 
 def plot_3d_scatter_dist_ref(
-    pc, attribute_list: list, max_n_points: int = 50_000, vmax: float = None
+    pc, attribute_list: list, max_n_points: int = 50_000, vmax: float | None = None
 ):
     pc_pl, values, vmin, inferred_vmax = prepare_distance_scatter_ref_data(
         pc, attribute_list, max_n_points=max_n_points
@@ -296,7 +291,7 @@ def plot_3d_scatter_dist_ref(
     )
 
     colorscale = "Viridis"
-    colorbar = dict(title="Distance")
+    colorbar = {"title": "Distance"}
 
     for i in range(len(attribute_list)):
         row = i // ncols + 1
@@ -307,15 +302,15 @@ def plot_3d_scatter_dist_ref(
                 y=pc_pl[:, 1],
                 z=pc_pl[:, 2],
                 mode="markers",
-                marker=dict(
-                    size=2,
-                    color=values[i],
-                    colorscale=colorscale,
-                    cmin=vmin,
-                    cmax=inferred_vmax,
-                    opacity=0.8,
-                    colorbar=colorbar,
-                ),
+                marker={
+                    "size": 2,
+                    "color": values[i],
+                    "colorscale": colorscale,
+                    "cmin": vmin,
+                    "cmax": inferred_vmax,
+                    "opacity": 0.8,
+                    "colorbar": colorbar,
+                },
                 name="Reference Point Cloud",
             ),
             row=row,
@@ -328,7 +323,10 @@ def plot_3d_scatter_dist_ref(
 
 
 def plot_3d_scatter_dist_comp(
-    pc_list: list, attribute: str, max_n_points: int = 50_000, vmax: float = None
+    pc_list: list,
+    attribute: str,
+    max_n_points: int = 50_000,
+    vmax: float | None = None,
 ):
     pc_pl_list, values, vmin, inferred_vmax = prepare_distance_scatter_comp_data(
         pc_list, attribute, max_n_points=max_n_points
@@ -345,7 +343,7 @@ def plot_3d_scatter_dist_comp(
     )
 
     colorscale = "Viridis"
-    colorbar = dict(title="Distance")
+    colorbar = {"title": "Distance"}
 
     for i in range(len(pc_pl_list)):
         row = i // ncols + 1
@@ -356,15 +354,15 @@ def plot_3d_scatter_dist_comp(
                 y=pc_pl_list[i][:, 1],
                 z=pc_pl_list[i][:, 2],
                 mode="markers",
-                marker=dict(
-                    size=2,
-                    color=values[i],
-                    colorscale=colorscale,
-                    cmin=vmin,
-                    cmax=inferred_vmax,
-                    opacity=0.8,
-                    colorbar=colorbar,
-                ),
+                marker={
+                    "size": 2,
+                    "color": values[i],
+                    "colorscale": colorscale,
+                    "cmin": vmin,
+                    "cmax": inferred_vmax,
+                    "opacity": 0.8,
+                    "colorbar": colorbar,
+                },
                 name=f"Comparison Point Cloud {i + 1}",
             ),
             row=row,
@@ -457,7 +455,7 @@ def plot_histogram(
                 _histogram_bar_trace(
                     data,
                     bin_edges,
-                    name=f"Comparison Point Cloud {i+1}",
+                    name=f"Comparison Point Cloud {i + 1}",
                     marker_color=color,
                     opacity=0.2,
                     histnorm=histnorm,
@@ -475,7 +473,7 @@ def plot_histogram(
 
         # get max frequency to scale y-axis equally
         histnorm = "probability density" if normalize else None
-        max_freq = 0
+        max_freq = 0.0
         for data in all_data:
             counts, _ = np.histogram(data, bins=bin_edges)
             max_freq = max(max_freq, float(np.max(counts)) if counts.size else 0)

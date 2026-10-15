@@ -7,11 +7,13 @@ repos:
       - id: nbstripout
         files: ".ipynb"
 
-  # Run Black - the uncompromising Python code formatter
-  - repo: https://github.com/psf/black-pre-commit-mirror
-    rev: 26.3.1
+  # Ruff linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
     hooks:
-      - id: black-jupyter
+      - id: ruff-check
+        args: [--fix, --show-fixes]
+      - id: ruff-format
 
   # Add some general purpose useful hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -32,7 +34,19 @@ repos:
 
   # Check Configuration as Code files for integrations
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: 0.37.0
+    rev: 0.38.2
     hooks:
       - id: check-github-workflows
       - id: check-readthedocs
+
+  # Upgrade syntax for newer Python versions
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.22.0
+    hooks:
+      - id: pyupgrade
+
+  # Static typing
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.4.0
+    hooks:
+      - id: mypy

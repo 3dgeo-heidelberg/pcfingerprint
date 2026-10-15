@@ -2,10 +2,16 @@
 Module for calculating geometric features on point clouds.
 """
 
-import numpy as np
+from __future__ import annotations
+
 import warnings
-from pcfingerprint.utils import point_cloud_to_vapc
-from pcfingerprint.utils import match_representative_points_to_indices
+
+import numpy as np
+
+from pcfingerprint.utils import (
+    match_representative_points_to_indices,
+    point_cloud_to_vapc,
+)
 
 
 def compute_density_jakteristics(
