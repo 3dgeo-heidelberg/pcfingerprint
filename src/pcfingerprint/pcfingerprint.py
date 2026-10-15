@@ -34,24 +34,35 @@ logger = logging.getLogger("pcfingerprint")
 class PointCloud:
     def __init__(
         self,
-        coords=None,
-        gps_time=None,
-        return_number=None,
-        number_of_returns=None,
-        intensity=None,
-        classification=None,
+        coords: np.ndarray | None = None,
+        gps_time: np.ndarray | None = None,
+        return_number: np.ndarray | None = None,
+        number_of_returns: np.ndarray | None = None,
+        intensity: np.ndarray | None = None,
+        classification: np.ndarray | None = None,
     ):
-        self.coords = coords  # Nx3 array of point coordinates
-        self.source = None  # source file path
-        self.gps_time = gps_time  # float array
-        self.return_number = return_number  # int array
-        self.number_of_returns = number_of_returns  # int array
-        self.intensity = intensity  # int array
-        self.classification = classification  # int array for point classification
-        self.geometric_features = {}  # dict of feature name to float array
-        self.voxel_features = {}  # dict of feature name to float array for voxel-based features
-        self.c2c = {}  # dict of cloud-to-cloud distances
-        self.sor = {}  # dict for statistical outlier removal
+        self.coords: np.ndarray | None = coords
+        """Nx3 array of point coordinates."""
+        self.source: Path | str | None = None
+        """Path of the file the point cloud was loaded from, if any."""
+        self.gps_time: np.ndarray | None = gps_time
+        """Float array of GPS timestamps."""
+        self.return_number: np.ndarray | None = return_number
+        """Int array of return numbers."""
+        self.number_of_returns: np.ndarray | None = number_of_returns
+        """Int array of the number of returns per pulse."""
+        self.intensity: np.ndarray | None = intensity
+        """Int array of intensity values."""
+        self.classification: np.ndarray | None = classification
+        """Int array of point classification codes."""
+        self.geometric_features: dict[str, np.ndarray] = {}
+        """Feature name to per-point float array."""
+        self.voxel_features: dict[str, np.ndarray] = {}
+        """Feature name to float array for voxel-based features."""
+        self.c2c: dict[str, np.ndarray] = {}
+        """Cloud-to-cloud distances, keyed by distance name (e.g. ``"c2c_to-reference"``)."""
+        self.sor: dict[str, np.ndarray] = {}
+        """Statistical outlier removal results, keyed by feature name."""
 
     def shift_z_to_zero(self):
         """Shift the z-coordinates so that the minimum z-value is zero."""
@@ -200,14 +211,20 @@ class PointCloudPair:
         robust_scale_intensity: bool = False,
         class_mapping: dict[int, str] | None = None,
     ):
-        self.reference = PointCloud()
-        # compare is a list of PointClouds (minimum 1)
+        self.reference: PointCloud = PointCloud()
+        """Reference PointCloud"""
         self.compare: list[PointCloud] = []
-        self.shift_z = shift_z
-        self.shift_gps_time = shift_gps_time
-        self.standardize_intensity = standardize_intensity
-        self.robust_scale_intensity = robust_scale_intensity
-        self.class_mapping = class_mapping
+        """List of PointClouds (minimum 1) to compare to reference"""
+        self.shift_z: bool = shift_z
+        """Whether to shift the z-coordinates of all PointClouds so that the minimum z-value is zero"""
+        self.shift_gps_time: bool = shift_gps_time
+        """Whether to shift the gps_time of all PointClouds so that the minimum gps_time is zero"""
+        self.standardize_intensity: bool = standardize_intensity
+        """Whether to standardize intensity values of all PointClouds"""
+        self.robust_scale_intensity: bool = robust_scale_intensity
+        """Whether to perform robust scaling on intensity values of all PointClouds"""
+        self.class_mapping: dict[int, str] | None = class_mapping
+        """Dictionary to map integer class values to class names"""
 
     def drop_attributes(self):
         """
@@ -540,8 +557,7 @@ class PointCloudPair:
         :type voxel_size: float
         :param voxel_origin: Optional voxel grid origin passed to the VAPC backend. If None, [0.0, 0.0, 0.0] is used.
         :type voxel_origin: array-like, optional
-        :param feature_names: List of VAPC features to compute. Supported features (py4dgeo v1.1) are "count", "density", "covariance", "eigenvalues",
-        "linearity", "planarity", "sphericity", "sum_of_eigenvalues","omnivariance", "eigenentropy", "anisotropy", "surface_variation". If empty, all available features will be computed.
+        :param feature_names: List of VAPC features to compute. Supported features (py4dgeo v1.1) are "count", "density", "covariance", "eigenvalues", "linearity", "planarity", "sphericity", "sum_of_eigenvalues","omnivariance", "eigenentropy", "anisotropy", "surface_variation". If empty, all available features will be computed.
         :type feature_names: list[str] | None
 
         :return: Tuple containing (VAPC for reference point cloud, list of VAPCs for compare point clouds)
@@ -810,13 +826,19 @@ class PointCloudPair:
         # write reference and compare point clouds (with new attributes) to output folder
         output_folder = Path(output_folder)
         output_folder.mkdir(parents=True, exist_ok=True)
+
+        def output_name(pc: PointCloud) -> str:
+            if pc.source is None:
+                raise ValueError(
+                    "PointCloud has no source file, cannot derive an output filename."
+                )
+            return Path(pc.source).name
+
         # write reference
-        reference_outpath = output_folder / Path(self.reference.source).name
-        write_las(self.reference, reference_outpath)
+        write_las(self.reference, output_folder / output_name(self.reference))
         # write compare
         for compare_pc in self.compare:
-            compare_outpath = output_folder / Path(compare_pc.source).name
-            write_las(compare_pc, compare_outpath)
+            write_las(compare_pc, output_folder / output_name(compare_pc))
 
 
 def write_voxelized_point_clouds(
@@ -973,6 +995,8 @@ def write_las(
     :param las_offset: las offset for x, y, z
     :type las_offset: list or np.ndarray
     """
+    if pc.coords is None:
+        raise ValueError("PointCloud coordinates are not set.")
     if las_scales is None:
         las_scales = [0.00025, 0.00025, 0.00025]
     if las_offset is None:
@@ -1052,6 +1076,8 @@ def get_attribute_data(pc: PointCloud, attribute: str):
         return getattr(pc, attribute)
 
     if attribute in ["x", "y", "z"]:
+        if pc.coords is None:
+            raise ValueError("PointCloud coordinates are not set.")
         coord_index = {"x": 0, "y": 1, "z": 2}[attribute]
         return pc.coords[:, coord_index]
 
