@@ -2,7 +2,7 @@ Installation
 ============
 
 ``pcfingerprint`` does not yet have an official release, but can be installed from source.
-``pcfingerprint`` requires Python >= 3.9. We recommend using a virtual environment to manage dependencies, e.g., `conda`/`mamba`::
+``pcfingerprint`` requires Python >= 3.10. We recommend using a virtual environment to manage dependencies, e.g., `conda`/`mamba`::
 
     mamba create -n pcfingerprint python=3.13
     mamba activate pcfingerprint
