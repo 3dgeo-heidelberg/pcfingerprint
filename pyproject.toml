@@ -10,7 +10,7 @@ readme = "README.md"
 maintainers = [
     { name = "Hannah Weiser", email = "h.weiser@uni-heidelberg.de" },
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -32,6 +32,9 @@ dependencies = [
     "pgeof",
     "py4dgeo"
 ]
+
+[project.optional-dependencies]
+test = ["pytest"]
 
 [tool.pytest.ini_options]
 markers = [

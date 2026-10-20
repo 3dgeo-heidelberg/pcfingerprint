@@ -13,7 +13,7 @@
 
 ### Prerequisites
 
-`pcfingerprint` requires Python >= 3.9 and < 3.14.
+`pcfingerprint` requires Python >= 3.10.
 We recommend using a virtual environment to manage dependencies, e.g., `conda`/`mamba`:
 
 ```bash
