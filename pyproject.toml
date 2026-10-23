@@ -30,7 +30,7 @@ dependencies = [
     "jinja2",
     "numerous-html-report-generator",
     "pgeof",
-    "py4dgeo"
+    "py4dgeo >= 1.3.0"
 ]
 
 [project.optional-dependencies]
