@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from py4dgeo.util import Py4DGeoError
 
 import pcfingerprint
 
@@ -467,3 +468,175 @@ def test_histogram_per_class_matplotlib(pc_pair_with_coords_and_attr):
     assert fig_list is not None
     assert len(fig_list) == num_classes_expected
     assert [0, 1, 2, 3, 4, 5] in classes
+
+
+SCAN_RESOLUTION = 0.1  # [deg]
+SCAN_POSITION = (0.0, 0.0, 0.0)
+N_ANGLES = 40
+WALL_DISTANCE = 10.0
+OUTLIER_INDICES = np.array([N_ANGLES * 20 + 20, N_ANGLES * 10 + 30])
+
+
+def make_wall_scan() -> pcfingerprint.PointCloud:
+    """Synthetic scan from the origin of a wall at x=10 m, sampled on the angular scan grid.
+
+    Two points are pulled halfway towards the scanner (``OUTLIER_INDICES``), so they are detached
+    from their angular neighbors. All points are last returns.
+    """
+    angles = np.radians(SCAN_RESOLUTION) * np.arange(N_ANGLES)
+    phi, theta = np.meshgrid(angles, angles, indexing="ij")
+    coords = np.column_stack(
+        [
+            np.full(phi.size, WALL_DISTANCE),
+            WALL_DISTANCE * np.tan(phi.ravel()),
+            WALL_DISTANCE * np.tan(theta.ravel()),
+        ]
+    )
+    coords[OUTLIER_INDICES] *= 0.5
+    n = coords.shape[0]
+    return pcfingerprint.PointCloud(
+        coords=coords,
+        return_number=np.ones(n, dtype=int),
+        number_of_returns=np.ones(n, dtype=int),
+    )
+
+
+@pytest.fixture()
+def scan_pair():
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.reference = make_wall_scan()
+    pc_pair.compare = [make_wall_scan()]
+    return pc_pair
+
+
+SCOR_KEY = f"scor_res{SCAN_RESOLUTION}_inc1"
+
+
+def test_scor_stores_result_for_all_point_clouds(scan_pair):
+    scan_pair.compute_scan_outlier_ratio(SCAN_POSITION, SCAN_RESOLUTION, 1)
+    for pc in [scan_pair.reference, *scan_pair.compare]:
+        scor = pc.scor[SCOR_KEY]
+        assert scor.shape == (pc.coords.shape[0],)
+        assert np.all((scor >= 0) & (scor <= 1))
+
+
+def test_scor_detached_points_have_low_values(scan_pair):
+    scan_pair.compute_scan_outlier_ratio(SCAN_POSITION, SCAN_RESOLUTION, 1)
+    scor = scan_pair.reference.scor[SCOR_KEY]
+    inliers = np.setdiff1d(np.arange(scor.size), OUTLIER_INDICES)
+    assert scor[OUTLIER_INDICES].max() < np.median(scor[inliers])
+
+
+def test_scor_half_increment(scan_pair):
+    scan_pair.compute_scan_outlier_ratio(SCAN_POSITION, SCAN_RESOLUTION, 0.5)
+    assert f"scor_res{SCAN_RESOLUTION}_inc0.5" in scan_pair.reference.scor
+
+
+def test_scor_only_last_returns_changes_candidates(scan_pair):
+    # mark a block of points as non-last returns; they must not serve as neighborhood candidates
+    for pc in [scan_pair.reference, *scan_pair.compare]:
+        pc.return_number[N_ANGLES * 5 : N_ANGLES * 15] = 1
+        pc.number_of_returns[N_ANGLES * 5 : N_ANGLES * 15] = 2
+    scan_pair.compute_scan_outlier_ratio(SCAN_POSITION, SCAN_RESOLUTION, 1)
+    last_only = scan_pair.reference.scor[SCOR_KEY].copy()
+    scan_pair.compute_scan_outlier_ratio(
+        SCAN_POSITION, SCAN_RESOLUTION, 1, only_last_returns=False
+    )
+    all_returns = scan_pair.reference.scor[SCOR_KEY]
+    assert not np.allclose(last_only, all_returns)
+
+
+def test_scor_all_returns_without_return_attributes(scan_pair):
+    for pc in [scan_pair.reference, *scan_pair.compare]:
+        pc.return_number = None
+        pc.number_of_returns = None
+    scan_pair.compute_scan_outlier_ratio(
+        SCAN_POSITION, SCAN_RESOLUTION, 1, only_last_returns=False
+    )
+    assert SCOR_KEY in scan_pair.reference.scor
+
+
+def test_scor_per_compare_scan_parameters(scan_pair):
+    scan_pair.compute_scan_outlier_ratio(
+        SCAN_POSITION,
+        SCAN_RESOLUTION,
+        1,
+        scan_positions_comp=np.array([SCAN_POSITION]),
+        scan_resolutions_comp=[0.5],
+    )
+    assert SCOR_KEY in scan_pair.reference.scor
+    assert "scor_res0.5_inc1" in scan_pair.compare[0].scor
+    # different results (despite identical points) due to compare-specific resolution
+    assert not np.allclose(
+        scan_pair.reference.scor[SCOR_KEY],
+        scan_pair.compare[0].scor["scor_res0.5_inc1"],
+    )
+
+
+def test_scor_not_loaded_raises():
+    with pytest.raises(ValueError, match="load both reference and compare"):
+        pcfingerprint.PointCloudPair().compute_scan_outlier_ratio(
+            SCAN_POSITION, SCAN_RESOLUTION, 1
+        )
+
+
+def test_scor_missing_return_attributes_raises(scan_pair):
+    scan_pair.compare[0].number_of_returns = None
+    with pytest.raises(ValueError, match="return_number"):
+        scan_pair.compute_scan_outlier_ratio(SCAN_POSITION, SCAN_RESOLUTION, 1)
+
+
+def test_scor_no_last_returns_raises(scan_pair):
+    scan_pair.reference.number_of_returns[:] = 2
+    with pytest.raises(ValueError, match="No last returns"):
+        scan_pair.compute_scan_outlier_ratio(SCAN_POSITION, SCAN_RESOLUTION, 1)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"scan_positions_comp": [SCAN_POSITION, SCAN_POSITION]},
+        {"scan_resolutions_comp": [0.1, 0.2]},
+    ],
+    ids=["positions", "resolutions"],
+)
+def test_scor_comp_length_mismatch_raises(scan_pair, kwargs):
+    with pytest.raises(ValueError, match="one entry per compare"):
+        scan_pair.compute_scan_outlier_ratio(
+            SCAN_POSITION, SCAN_RESOLUTION, 1, **kwargs
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"scan_position": (0.0, 0.0)},
+        {"scan_position": (0.0, 0.0, np.nan)},
+        {"increment": 0},
+        {"increment": 1.3},
+    ],
+    ids=["position-length", "position-nan", "increment-zero", "increment-fractional"],
+)
+def test_scor_invalid_arguments_raise_py4dgeo_error(scan_pair, kwargs):
+    args = {
+        "scan_position": SCAN_POSITION,
+        "scan_resolution": SCAN_RESOLUTION,
+        "increment": 1,
+    }
+    args.update(kwargs)
+    with pytest.raises(Py4DGeoError):
+        scan_pair.compute_scan_outlier_ratio(**args)
+
+
+@pytest.mark.parametrize("resolution", [0, -0.1, np.nan])
+def test_scor_invalid_resolution_raises(scan_pair, resolution):
+    with pytest.raises(ValueError, match="scan_resolution"):
+        scan_pair.compute_scan_outlier_ratio(SCAN_POSITION, resolution, 1)
+
+
+def test_mask_preserves_scor(scan_pair):
+    scan_pair.compute_scan_outlier_ratio(SCAN_POSITION, SCAN_RESOLUTION, 1)
+    masked = scan_pair.reference.mask(np.arange(10))
+    np.testing.assert_array_equal(
+        masked.scor[SCOR_KEY], scan_pair.reference.scor[SCOR_KEY][:10]
+    )
