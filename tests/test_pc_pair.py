@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -467,3 +469,70 @@ def test_histogram_per_class_matplotlib(pc_pair_with_coords_and_attr):
     assert fig_list is not None
     assert len(fig_list) == num_classes_expected
     assert [0, 1, 2, 3, 4, 5] in classes
+
+
+@pytest.fixture()
+def pc_pair_with_sources(pc_pair_with_coords):
+    """Pair whose point clouds have distinct source names (files do not need to exist)."""
+    pc_pair_with_coords.reference.source = Path("reference.las")
+    pc_pair_with_coords.compare[0].source = Path("compare.las")
+    return pc_pair_with_coords
+
+
+def test_write_point_clouds(pc_pair_with_sources, tmp_path):
+    pc_pair_with_sources.write_point_clouds(tmp_path / "out")
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == [
+        "compare.las",
+        "reference.las",
+    ]
+
+
+def test_write_point_clouds_duplicate_names_raise(pc_pair_with_sources, tmp_path):
+    pc_pair_with_sources.compare[0].source = Path("other_folder/reference.las")
+    out = tmp_path / "out"
+    with pytest.raises(ValueError, match="same file"):
+        pc_pair_with_sources.write_point_clouds(out)
+    assert not out.exists()
+
+
+def test_write_point_clouds_no_source_raises(pc_pair_with_coords, tmp_path):
+    with pytest.raises(ValueError, match="no source file"):
+        pc_pair_with_coords.write_point_clouds(tmp_path / "out")
+
+
+def test_write_point_clouds_overwrite_false_raises(pc_pair_with_sources, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    existing = out / "compare.las"
+    existing.write_text("keep me")
+    with pytest.raises(FileExistsError, match="compare.las"):
+        pc_pair_with_sources.write_point_clouds(out, overwrite=False)
+    assert existing.read_text() == "keep me"
+    assert not (out / "reference.las").exists()
+
+
+def test_write_point_clouds_overwrite_true_replaces(pc_pair_with_sources, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    existing = out / "compare.las"
+    existing.write_text("replace me")
+    pc_pair_with_sources.write_point_clouds(out, overwrite=True)
+    assert existing.stat().st_size > len("replace me")
+
+
+def test_filter_by_class_preserves_class_mapping(pc_pair_with_coords_and_attr):
+    pc_pair_with_coords_and_attr.class_mapping = {1: "ground", 2: "vegetation"}
+    pc_pair_filtered = pc_pair_with_coords_and_attr.filter_by_class([1])
+    assert pc_pair_filtered.class_mapping == {1: "ground", 2: "vegetation"}
+
+
+@pytest.mark.parametrize("suffix", [".CSV", ".Csv", ".XYZ"])
+def test_load_point_clouds_uppercase_extension(pc_xyz, tmp_path, suffix):
+    upper_path = tmp_path / f"UPPER{suffix}"
+    upper_path.write_bytes(pc_xyz.read_bytes())
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.load_reference(upper_path)
+    pc_pair.load_compare(upper_path)
+    assert pc_pair.reference.coords.shape == (3, 3)
+    assert pc_pair.compare[0].coords.shape == (3, 3)
+    assert pc_pair.reference.source == upper_path
