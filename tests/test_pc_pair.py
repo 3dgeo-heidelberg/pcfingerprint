@@ -681,3 +681,9 @@ def test_mask_preserves_scor(scan_pair):
     np.testing.assert_array_equal(
         masked.scor[SCOR_KEY], scan_pair.reference.scor[SCOR_KEY][:10]
     )
+
+
+def test_require_loaded_checks_compare_coords(pc_pair_with_coords):
+    pc_pair_with_coords.compare.append(pcfingerprint.PointCloud())
+    with pytest.raises(ValueError, match="load both reference and compare"):
+        pc_pair_with_coords.compute_statistical_outlier_removal()

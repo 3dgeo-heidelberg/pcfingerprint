@@ -243,7 +243,7 @@ class PointCloudPair:
         return [self.reference, *self.compare]
 
     def _require_loaded(self, action: str) -> None:
-        if self.reference.coords is None or self.compare == []:
+        if self.compare == [] or any(pc.coords is None for pc in self._all_pcs):
             raise ValueError(
                 f"Please load both reference and compare point clouds before {action}."
             )
@@ -353,19 +353,10 @@ class PointCloudPair:
         :param std_dev_multiplier: Standard deviation multiplier for determining outliers. Default is 1.0.
         :type std_dev_multiplier: float
         """
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before computing statistical outlier removal."
-            )
+        self._require_loaded("computing statistical outlier removal")
         # round std_dev_multiplier to 1 decimal place
         std_dev_multiplier = round(std_dev_multiplier, 1)
-        # create epoch for reference
-        epoch = py4dgeo.Epoch(self.reference.coords)
-        _, inlier_outlier = py4dgeo.statistical_outlier_removal(
-            epoch, k=k, std_dev_multiplier=std_dev_multiplier
-        )
-        self.reference.sor[f"sor_k{k}_std{std_dev_multiplier}"] = inlier_outlier
-        for pc in self.compare:
+        for pc in self._all_pcs:
             epoch = py4dgeo.Epoch(pc.coords)
             _, inlier_outlier = py4dgeo.statistical_outlier_removal(
                 epoch, k=k, std_dev_multiplier=std_dev_multiplier
@@ -383,7 +374,7 @@ class PointCloudPair:
     ) -> None:
         """
         Compute the scan outlier ratio (ScOR) on the reference and all comparison point clouds.
-        Uses py4dgeo.scan_outlier_ratio and stores the resulting per-point ScOR values under the key ``"scor"`` in the scor dictionary of each PointCloud.
+        Uses py4dgeo.scan_outlier_ratio and stores the resulting per-point ScOR values in the scor dictionary of each PointCloud (key format described below).
         Each point cloud is evaluated against its own (optionally last-return) points as neighborhood candidates (standard ScOR, not multitemporal ScOR).
 
         Note that this assumes that each point cloud is a single scan captured from a static position and that the
