@@ -237,10 +237,30 @@ class PointCloudPair:
         """Whether to perform robust scaling on intensity values of all PointClouds"""
         self.class_mapping: dict[int, str] | None = class_mapping
         """Dictionary to map integer class values to class names"""
+        self._check_intensity_scaling_options()
 
     @property
     def _all_pcs(self) -> list[PointCloud]:
         return [self.reference, *self.compare]
+
+    def _check_intensity_scaling_options(self) -> None:
+        # checked in __init__ and again before loading, as the flags are public attributes
+        if self.robust_scale_intensity and self.standardize_intensity:
+            raise ValueError(
+                "Cannot apply both robust scaling and standardization to intensity."
+            )
+
+    def _preprocess(self, pcs: list[PointCloud]) -> None:
+        """Apply the configured shifting and intensity scaling to the given point clouds."""
+        for pc in pcs:
+            if self.shift_z:
+                pc.shift_z_to_zero()
+            if self.shift_gps_time:
+                pc.shift_gpstime_to_zero()
+            if self.robust_scale_intensity:
+                pc.robust_scale_intensity()
+            if self.standardize_intensity:
+                pc.standardize_intensity()
 
     def _require_loaded(self, action: str) -> None:
         if self.compare == [] or any(pc.coords is None for pc in self._all_pcs):
@@ -252,50 +272,41 @@ class PointCloudPair:
         """
         Drop attributes that are not present in all point clouds in the pair to ensure comparability.
         """
-        all_pcs = [self.reference] + self.compare
         for attr in [
             "gps_time",
             "return_number",
             "number_of_returns",
             "intensity",
         ]:
-            if any(getattr(pc, attr) is None for pc in all_pcs):
+            if any(getattr(pc, attr) is None for pc in self._all_pcs):
                 logger.info(
                     f"Dropping attribute '{attr}' as it is not present in all point clouds."
                 )
-                for pc in all_pcs:
+                for pc in self._all_pcs:
                     setattr(pc, attr, None)
 
     def load_reference(self, filepath: str | Path):
         """
         Load the reference point cloud from a file. Supported formats are LAS/LAZ and XYZ.
+        The previously loaded reference is only replaced if loading and preprocessing succeed.
 
         :param filepath: File path to load. Supported formats are LAS/LAZ and XYZ.
         :type filepath: str
         """
+        self._check_intensity_scaling_options()
         logger.info(f"Loading reference point cloud from {filepath}...")
         # read based on file extension
         if Path(filepath).suffix in [".las", ".laz"]:
-            self.reference = read_las_file(filepath)
+            reference = read_las_file(filepath)
         elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
-            self.reference = read_xyz_file(filepath)
+            reference = read_xyz_file(filepath)
         else:
             raise ValueError(
                 f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
             )
-        self.reference.source = Path(filepath)
-        if self.shift_z:
-            self.reference.shift_z_to_zero()
-        if self.shift_gps_time:
-            self.reference.shift_gpstime_to_zero()
-        if self.robust_scale_intensity and self.standardize_intensity:
-            raise ValueError(
-                "Cannot apply both robust scaling and standardization to intensity."
-            )
-        if self.robust_scale_intensity:
-            self.reference.robust_scale_intensity()
-        if self.standardize_intensity:
-            self.reference.standardize_intensity()
+        reference.source = Path(filepath)
+        self._preprocess([reference])
+        self.reference = reference
         # if comparison point cloud is already loaded, drop non-overlapping attributes
         if self.compare != []:
             self.drop_attributes()
@@ -304,39 +315,29 @@ class PointCloudPair:
         """
         Load comparison point cloud(s) from file(s).
         Users can provide both a single file path (str or Path) and a list of file paths.
+        The comparison point clouds are only added if all files could be loaded and preprocessed;
+        otherwise the pair is left unchanged. Point clouds that were loaded earlier are not preprocessed again.
 
         :param filepaths: File path(s) to load. Can be a single file path or a sequence of file paths (str or Path). Supported formats are LAS/LAZ and XYZ.
         :type filepaths: Sequence[str | Path] | str | Path
         """
+        self._check_intensity_scaling_options()
         if isinstance(filepaths, (str, Path)):
             filepaths = [filepaths]
+        new_pcs: list[PointCloud] = []
         for filepath in filepaths:
             logger.info(f"Loading comparison point cloud from {filepath}...")
             if Path(filepath).suffix in [".las", ".laz"]:
-                self.compare.append(read_las_file(filepath))
+                new_pcs.append(read_las_file(filepath))
             elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
-                self.compare.append(read_xyz_file(filepath))
+                new_pcs.append(read_xyz_file(filepath))
             else:
                 raise ValueError(
                     f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
                 )
-            self.compare[-1].source = Path(filepath)
-        if self.shift_z:
-            for pc in self.compare:
-                pc.shift_z_to_zero()
-        if self.shift_gps_time:
-            for pc in self.compare:
-                pc.shift_gpstime_to_zero()
-        if self.robust_scale_intensity and self.standardize_intensity:
-            raise ValueError(
-                "Cannot apply both robust scaling and standardization to intensity."
-            )
-        if self.standardize_intensity:
-            for pc in self.compare:
-                pc.standardize_intensity()
-        if self.robust_scale_intensity:
-            for pc in self.compare:
-                pc.robust_scale_intensity()
+            new_pcs[-1].source = Path(filepath)
+        self._preprocess(new_pcs)
+        self.compare.extend(new_pcs)
         # if reference world point cloud is already loaded, drop non-overlapping attributes
         if self.reference.coords is not None:
             self.drop_attributes()
@@ -460,6 +461,9 @@ class PointCloudPair:
         :type chunking: bool
         :param max_points_per_chunk: Maximum number of interior points per spatial tile when ``chunking`` is enabled. Tiles are buffered by at least ``radius`` so results match an unchunked computation.
         :type max_points_per_chunk: int | None
+
+        :raises ValueError: If the reference or compare point clouds are not loaded, if ``chunking`` is enabled without ``max_points_per_chunk``, if ``backend`` is not supported, or if any requested feature is available in neither backend. All of this is checked before any feature is computed.
+        :warns UserWarning: If a requested feature is not available in ``backend`` and is computed with the other backend as fallback.
         """
         self._require_loaded("computing geometric features")
         if chunking and max_points_per_chunk is None:
@@ -534,14 +538,13 @@ class PointCloudPair:
         :return: Tuple containing (VAPC for reference point cloud, list of VAPCs for compare point clouds)
         :rtype: tuple[py4dgeo.Vapc, list[py4dgeo.Vapc]]
         """
-        self._require_loaded("computing voxel features.")
+        self._require_loaded("computing voxel features")
         if feature_names is None:
             feature_names = []
         vapc_list = []
-        for pc in [self.reference] + self.compare:
-            name = Path(pc.source).name if pc.source is not None else "unknown source"
+        for pc in self._all_pcs:
             with logger_context(
-                f"Computing voxel features for {name} using VAPC. {feature_names}, voxel size: {voxel_size}"
+                f"Computing voxel features for {pc.display_name} using VAPC. {feature_names}, voxel size: {voxel_size}"
             ):
                 vapc = compute_geom_feat_vapc(
                     pc, voxel_size, voxel_origin, feature_names
@@ -719,14 +722,38 @@ class PointCloudPair:
         vis_backend: str = "matplotlib",
         preview: bool = True,
     ):
+        """
+        Generate an HTML report comparing the reference and the comparison point clouds.
+        If more than five comparison point clouds are loaded, only the first five are included.
+
+        :param output_folder: Folder to write the report to. It is created if it does not exist.
+        :type output_folder: str | Path
+        :param attribute_list: Point attributes (e.g. "intensity", "z") and geometric/voxel feature names to include. Names without a suffix are expanded to all matching features, e.g. "linearity" to "linearity_r0.1", "linearity_r0.2". If None, all available attributes except the x and y coordinates are used.
+        :type attribute_list: list[str] | None
+        :param distance_list: Distance attributes to include, e.g. "c2c" (expanded like ``attribute_list``). Default is None.
+        :type distance_list: list[str] | None
+        :param summary_statistics: Whether to include summary statistics tables. Default is True.
+        :type summary_statistics: bool
+        :param class_distribution: Whether to include class distribution metrics. Requires the classification attribute. Default is False.
+        :type class_distribution: bool
+        :param outlier_statistics: Whether to include outlier statistics. Requires that statistical outlier removal was computed for all point clouds, see :meth:`compute_statistical_outlier_removal`. Default is False.
+        :type outlier_statistics: bool
+        :param return_number_metrics: Whether to include return-number metrics. Default is False.
+        :type return_number_metrics: bool
+        :param visualizations: Visualization types to include: "histogram", "histogram_overlay", "histogram_per_class", "3d_scatter" and "3d_scatter_distances". If None, ["histogram_overlay"] is used.
+        :type visualizations: list[str] | None
+        :param vis_backend: Visualization backend, "matplotlib" or "plotly". Default is "matplotlib".
+        :type vis_backend: str
+        :param preview: Whether to start a local web server and open the report in a browser. Default is True.
+        :type preview: bool
+
+        :raises ValueError: If the reference or compare point clouds are not loaded.
+        :raises NotImplementedError: If an unsupported visualization backend is requested.
+        """
         if visualizations is None:
             visualizations = ["histogram_overlay"]
 
-        # raise error if no point clouds loaded
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before generating report."
-            )
+        self._require_loaded("generating report")
 
         # generate html report with histograms for each attribute in attribute_list
         if len(self.compare) > 5:

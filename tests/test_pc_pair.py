@@ -687,3 +687,53 @@ def test_require_loaded_checks_compare_coords(pc_pair_with_coords):
     pc_pair_with_coords.compare.append(pcfingerprint.PointCloud())
     with pytest.raises(ValueError, match="load both reference and compare"):
         pc_pair_with_coords.compute_statistical_outlier_removal()
+
+
+def test_both_intensity_scalings_raise_on_init():
+    with pytest.raises(ValueError, match="Cannot apply both"):
+        pcfingerprint.PointCloudPair(
+            standardize_intensity=True, robust_scale_intensity=True
+        )
+
+
+def test_both_intensity_scalings_raise_before_loading(pc_xyz):
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.standardize_intensity = True
+    pc_pair.robust_scale_intensity = True
+    with pytest.raises(ValueError, match="Cannot apply both"):
+        pc_pair.load_compare(pc_xyz)
+    assert pc_pair.compare == []
+    with pytest.raises(ValueError, match="Cannot apply both"):
+        pc_pair.load_reference(pc_xyz)
+    assert pc_pair.reference.coords is None
+
+
+def test_load_compare_failure_leaves_pair_unchanged(pc_xyz, tmp_path):
+    bad = tmp_path / "points.unsupported"
+    bad.write_text("")
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.load_compare(pc_xyz)
+    with pytest.raises(ValueError, match="not supported"):
+        pc_pair.load_compare([pc_xyz, bad])
+    assert len(pc_pair.compare) == 1
+
+
+def test_load_reference_failure_keeps_previous_reference(pc_xyz, tmp_path):
+    bad = tmp_path / "points.unsupported"
+    bad.write_text("")
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.load_reference(pc_xyz)
+    previous = pc_pair.reference
+    with pytest.raises(ValueError, match="not supported"):
+        pc_pair.load_reference(bad)
+    assert pc_pair.reference is previous
+
+
+def test_load_compare_preprocesses_only_new_clouds(pc_xyz):
+    pc_pair = pcfingerprint.PointCloudPair(shift_z=True)
+    pc_pair.load_compare(pc_xyz)
+    first = pc_pair.compare[0]
+    first.coords[:, 2] += 5.0  # would be shifted back to 0 if preprocessed again
+    pc_pair.load_compare(pc_xyz)
+    assert first.coords[:, 2].min() == pytest.approx(5.0)
+    assert pc_pair.compare[1].coords[:, 2].min() == pytest.approx(0.0)
