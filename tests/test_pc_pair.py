@@ -54,7 +54,7 @@ def test_create_pointcloud_numpy():
     assert pc.number_of_returns.shape == (100,)
 
 
-def test_geometric_features_backend_fallback(pc_pair_with_coords):
+def test_geometric_features_backend_fallback_pgeof(pc_pair_with_coords):
     with pytest.warns(UserWarning, match="Features .* not available in"):
         pc_pair_with_coords.compute_geometric_features(
             feature_names=["linearity", "planarity", "eigenvalue1"],
@@ -64,6 +64,47 @@ def test_geometric_features_backend_fallback(pc_pair_with_coords):
     assert "linearity_r1.0" in pc_pair_with_coords.reference.geometric_features
     assert "planarity_r1.0" in pc_pair_with_coords.reference.geometric_features
     assert "eigenvalue1_r1.0" in pc_pair_with_coords.reference.geometric_features
+
+
+def test_geometric_features_backend_fallback_jakteristics(pc_pair_with_coords):
+    with pytest.warns(UserWarning, match="Features .* not available in"):
+        pc_pair_with_coords.compute_geometric_features(
+            feature_names=["linearity", "planarity", "curvature"],
+            radius=1.0,
+            backend="jakteristics",
+        )
+    assert "linearity_r1.0" in pc_pair_with_coords.reference.geometric_features
+    assert "planarity_r1.0" in pc_pair_with_coords.reference.geometric_features
+    assert "curvature_r1.0" in pc_pair_with_coords.reference.geometric_features
+
+
+def test_geometric_features_unknown_feature_raises(pc_pair_with_coords):
+    with pytest.raises(ValueError, match="not available"):
+        pc_pair_with_coords.compute_geometric_features(
+            feature_names=["isotropy"],
+            radius=1.0,
+            backend="jakteristics",
+        )
+
+
+def test_geometric_features_unknown_feature_fails_before_computing(
+    pc_pair_with_coords,
+):
+    """An unknown feature must not leave partially computed density/features behind."""
+    with pytest.raises(ValueError, match="not available"):
+        pc_pair_with_coords.compute_geometric_features(
+            feature_names=["density", "linearity", "isotropy"],
+            radius=1.0,
+        )
+    assert pc_pair_with_coords.reference.geometric_features == {}
+
+
+def test_geometric_features_unsupported_backend_raises(pc_pair_with_coords):
+    with pytest.raises(ValueError, match="not supported"):
+        pc_pair_with_coords.compute_geometric_features(
+            feature_names=["density"], radius=1.0, backend="nope"
+        )
+    assert pc_pair_with_coords.reference.geometric_features == {}
 
 
 def test_voxel_features_different_voxel_sizes(pc_pair_with_coords):
