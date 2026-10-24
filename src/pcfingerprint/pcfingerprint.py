@@ -470,11 +470,7 @@ class PointCloudPair:
         :param max_points_per_chunk: Maximum number of interior points per spatial tile when ``chunking`` is enabled. Tiles are buffered by at least ``radius`` so results match an unchunked computation.
         :type max_points_per_chunk: int | None
         """
-        # raise error if no point clouds loaded
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before computing geometric features."
-            )
+        self._require_loaded("computing geometric features")
         if chunking and max_points_per_chunk is None:
             raise ValueError(
                 "Please provide max_points_per_chunk when chunking is enabled."
@@ -484,7 +480,19 @@ class PointCloudPair:
         requested_features = list(feature_names)
 
         density_requested = "density" in requested_features
+        density_fns = {
+            "jakteristics": compute_density_jakteristics,
+            "pgeof": compute_density_pgeof,
+        }
+        geom_fns = {
+            "jakteristics": compute_geom_feat_jakteristics,
+            "pgeof": compute_geom_feat_pgeof,
+        }
         feature_names = [f for f in requested_features if f != "density"]
+
+        # validate backend and feature names before computing anything
+        primary, fallback = _split_features_by_backend(feature_names, backend)
+        other = "jakteristics" if backend == "pgeof" else "pgeof"
 
         def _compute(pc, compute_fn, **kwargs):
             if chunking:
@@ -495,146 +503,23 @@ class PointCloudPair:
                 compute_fn(pc, **kwargs)
 
         if density_requested:
-            if backend == "jakteristics":
+            for pc in self._all_pcs:
                 with logger_context(
-                    f"Computing density for reference pc using jakteristics. Search radius: {radius}, max_knn: {max_knn}"
+                    f"Computing density for {pc.display_name} using {backend}. Search radius: {radius}, max_knn: {max_knn}"
                 ):
-                    _compute(
-                        self.reference,
-                        compute_density_jakteristics,
-                        radius=radius,
-                        max_knn=max_knn,
-                    )
-                for compare_pc in self.compare:
-                    name = (
-                        Path(compare_pc.source).name
-                        if compare_pc.source is not None
-                        else "unknown source"
-                    )
-                    with logger_context(
-                        f"Computing density for {name} using jakteristics. Search radius: {radius}, max_knn: {max_knn}"
-                    ):
-                        _compute(
-                            compare_pc,
-                            compute_density_jakteristics,
-                            radius=radius,
-                            max_knn=max_knn,
-                        )
-            elif backend == "pgeof":
-                with logger_context(
-                    f"Computing density for reference pc using pgeof. Search radius: {radius}, max_knn: {max_knn}"
-                ):
-                    _compute(
-                        self.reference,
-                        compute_density_pgeof,
-                        radius=radius,
-                        max_knn=max_knn,
-                    )
-                for compare_pc in self.compare:
-                    name = (
-                        Path(compare_pc.source).name
-                        if compare_pc.source is not None
-                        else "unknown source"
-                    )
-                    with logger_context(
-                        f"Computing density for {name} using pgeof. Search radius: {radius}, max_knn: {max_knn}"
-                    ):
-                        _compute(
-                            compare_pc,
-                            compute_density_pgeof,
-                            radius=radius,
-                            max_knn=max_knn,
-                        )
-            else:
-                raise ValueError(f"Backend {backend} not supported.")
+                    _compute(pc, density_fns[backend], radius=radius, max_knn=max_knn)
 
-        if feature_names == []:
-            return  # all requested features already computed
-
-        # check if all feature names available for the backend, if not, try fallback on other backend before raising error
-        if backend == "pgeof":
-            pgeof_features_lower = [f.lower() for f in EFeatureID._member_names_]
-            pgeof_features = [f for f in feature_names if f in pgeof_features_lower]
-            jakteristics_features = [
-                f
-                for f in feature_names
-                if (
-                    f in jakteristics.constants.FEATURE_NAMES
-                    and f not in pgeof_features
-                )
-            ]
-            if jakteristics_features != []:
-                warnings.warn(
-                    f"Features {jakteristics_features} not available in pgeof. Computing them using jakteristics as fallback.",
-                    UserWarning,
-                )
-        elif backend == "jakteristics":
-            jakteristics_features = [
-                f for f in feature_names if f in jakteristics.constants.FEATURE_NAMES
-            ]
-            pgeof_features = [
-                f
-                for f in feature_names
-                if (f in EFeatureID._member_names_ and f not in jakteristics_features)
-            ]
-            if pgeof_features != []:
-                warnings.warn(
-                    f"Features {pgeof_features} not available in jakteristics. Computing them using pgeof as fallback.",
-                    UserWarning,
-                )
-        else:
-            raise ValueError(f"Backend {backend} not supported.")
-        if len(jakteristics_features) > 0:
-            with logger_context(
-                f"Computing geometric features for reference pc using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
-            ):
-                _compute(
-                    self.reference,
-                    compute_geom_feat_jakteristics,
-                    feature_names=jakteristics_features,
-                    radius=radius,
-                    max_knn=max_knn,
-                )
-            for compare_pc in self.compare:
-                name = (
-                    Path(compare_pc.source).name
-                    if compare_pc.source is not None
-                    else "unknown source"
-                )
+        for name, feats in ((backend, primary), (other, fallback)):
+            if not feats:
+                continue
+            for pc in self._all_pcs:
                 with logger_context(
-                    f"Computing geometric features for {name} using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
+                    f"Computing geometric features for {pc.display_name} using {name}. {feats}, search radius: {radius}, max_knn: {max_knn}"
                 ):
                     _compute(
-                        compare_pc,
-                        compute_geom_feat_jakteristics,
-                        feature_names=jakteristics_features,
-                        radius=radius,
-                        max_knn=max_knn,
-                    )
-        if len(pgeof_features) > 0:
-            with logger_context(
-                f"Computing geometric features for reference pc using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
-            ):
-                _compute(
-                    self.reference,
-                    compute_geom_feat_pgeof,
-                    feature_names=pgeof_features,
-                    radius=radius,
-                    max_knn=max_knn,
-                )
-            for compare_pc in self.compare:
-                name = (
-                    Path(compare_pc.source).name
-                    if compare_pc.source is not None
-                    else "unknown source"
-                )
-                with logger_context(
-                    f"Computing geometric features for {name} using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
-                ):
-                    _compute(
-                        compare_pc,
-                        compute_geom_feat_pgeof,
-                        feature_names=pgeof_features,
+                        pc,
+                        geom_fns[name],
+                        feature_names=feats,
                         radius=radius,
                         max_knn=max_knn,
                     )
@@ -934,6 +819,35 @@ class PointCloudPair:
         # write compare
         for compare_pc in self.compare:
             write_las(compare_pc, output_folder / output_name(compare_pc))
+
+
+def _split_features_by_backend(
+    feature_names: list[str], backend: str
+) -> tuple[list[str], list[str]]:
+    """Return (primary, fallback) features for ``backend``.
+
+    ``primary`` is available in ``backend``; ``fallback`` is only available in the other one.
+    Raises ValueError for an unsupported backend or for features available in neither.
+    """
+    available = {
+        "pgeof": {f.lower() for f in EFeatureID._member_names_},
+        "jakteristics": set(jakteristics.constants.FEATURE_NAMES),
+    }
+    if backend not in available:
+        raise ValueError(f"Backend {backend} not supported.")
+    other = "jakteristics" if backend == "pgeof" else "pgeof"
+
+    primary = [f for f in feature_names if f in available[backend]]
+    fallback = [f for f in feature_names if f not in primary and f in available[other]]
+    unknown = [f for f in feature_names if f not in primary and f not in fallback]
+    if unknown:
+        raise ValueError(f"Features {unknown} not available in pgeof or jakteristics.")
+    if fallback:
+        warnings.warn(
+            f"Features {fallback} not available in {backend}. Computing them using {other} as fallback.",
+            UserWarning,
+        )
+    return primary, fallback
 
 
 def _scor_for_cloud(
