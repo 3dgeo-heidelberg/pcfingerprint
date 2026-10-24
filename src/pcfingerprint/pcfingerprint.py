@@ -534,11 +534,7 @@ class PointCloudPair:
         :return: Tuple containing (VAPC for reference point cloud, list of VAPCs for compare point clouds)
         :rtype: tuple[py4dgeo.Vapc, list[py4dgeo.Vapc]]
         """
-        # raise error if no point clouds loaded
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before computing voxel features."
-            )
+        self._require_loaded("computing voxel features.")
         if feature_names is None:
             feature_names = []
         vapc_list = []
@@ -567,7 +563,7 @@ class PointCloudPair:
         :param max_distance: Optional maximum distance threshold. Distances greater than this value will be set to NaN. Default: np.inf, i.e., no threshold is applied.
         :type max_distance: float, optional
         """
-
+        self._require_loaded("computing C2C distances")
         # create epochs for the point clouds
         reference_epoch = py4dgeo.Epoch(cloud=self.reference.coords)
 
@@ -594,11 +590,7 @@ class PointCloudPair:
         :return: A new PointCloudPair object containing only points of the specified classes.
         :rtype: PointCloudPair
         """
-        # raise error if no point clouds loaded
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before filtering by class."
-            )
+        self._require_loaded("filtering by class")
         if self.reference.classification is None or any(
             compare_pc.classification is None for compare_pc in self.compare
         ):
