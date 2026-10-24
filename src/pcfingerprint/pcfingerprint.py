@@ -30,6 +30,9 @@ from pcfingerprint.utils import (
 
 logger = logging.getLogger("pcfingerprint")
 
+_SCOR_RESOLUTION_OFFSET = 0.0028
+"""Offset [deg] added to the doubled scan resolution passed to py4dgeo's ScOR (as in the py4dgeo outlier removal notebook)."""
+
 
 class PointCloud:
     def __init__(
@@ -63,6 +66,13 @@ class PointCloud:
         """Cloud-to-cloud distances, keyed by distance name (e.g. ``"c2c_to-reference"``)."""
         self.sor: dict[str, np.ndarray] = {}
         """Statistical outlier removal results, keyed by feature name."""
+        self.scor: dict[str, np.ndarray] = {}
+        """Scan outlier ratio results, keyed by feature name."""
+
+    @property
+    def display_name(self) -> str:
+        """File name of the source, or ``"unknown source"``; used in log messages."""
+        return Path(self.source).name if self.source is not None else "unknown source"
 
     def shift_z_to_zero(self):
         """Shift the z-coordinates so that the minimum z-value is zero."""
@@ -192,6 +202,8 @@ class PointCloud:
             # outlier features
             for feat_name, feat_data in self.sor.items():
                 new_pc.sor[feat_name] = feat_data[indices]
+            for feat_name, feat_data in self.scor.items():
+                new_pc.scor[feat_name] = feat_data[indices]
             # voxel features
             for feat_name, feat_data in self.voxel_features.items():
                 new_pc.voxel_features[feat_name] = self._mask_voxel_feature(
@@ -225,6 +237,16 @@ class PointCloudPair:
         """Whether to perform robust scaling on intensity values of all PointClouds"""
         self.class_mapping: dict[int, str] | None = class_mapping
         """Dictionary to map integer class values to class names"""
+
+    @property
+    def _all_pcs(self) -> list[PointCloud]:
+        return [self.reference, *self.compare]
+
+    def _require_loaded(self, action: str) -> None:
+        if self.reference.coords is None or self.compare == []:
+            raise ValueError(
+                f"Please load both reference and compare point clouds before {action}."
+            )
 
     def drop_attributes(self):
         """
@@ -324,7 +346,7 @@ class PointCloudPair:
     ):
         """
         Perform statistical outlier removal (SOR) on the reference and all comparison point clouds.
-        Uses py4dgeo.sor.statistical_outlier_removal and adds a boolean array named by the parameters to the sor dictionary of each PointCloud.
+        Uses py4dgeo.statistical_outlier_removal and adds a boolean array named by the parameters to the sor dictionary of each PointCloud.
 
         :param k: Number of nearest neighbors to consider for each point. Default is 8.
         :type k: int
@@ -349,6 +371,79 @@ class PointCloudPair:
                 epoch, k=k, std_dev_multiplier=std_dev_multiplier
             )
             pc.sor[f"sor_k{k}_std{std_dev_multiplier}"] = inlier_outlier
+
+    def compute_scan_outlier_ratio(
+        self,
+        scan_position: Sequence[float] | np.ndarray,
+        scan_resolution: float,
+        increment: float,
+        only_last_returns: bool = True,
+        scan_positions_comp: Sequence[Sequence[float]] | np.ndarray | None = None,
+        scan_resolutions_comp: Sequence[float] | np.ndarray | None = None,
+    ) -> None:
+        """
+        Compute the scan outlier ratio (ScOR) on the reference and all comparison point clouds.
+        Uses py4dgeo.scan_outlier_ratio and stores the resulting per-point ScOR values under the key ``"scor"`` in the scor dictionary of each PointCloud.
+        Each point cloud is evaluated against its own (optionally last-return) points as neighborhood candidates (standard ScOR, not multitemporal ScOR).
+
+        Note that this assumes that each point cloud is a single scan captured from a static position and that the
+        vertical angular resolution is equal to the horizontal angular resolution.
+        Not suitable for moving platforms or multi-scan terrestrial laser scans.
+
+        The scan resolution passed to py4dgeo is adjusted as ``2 * scan_resolution + 0.0028`` (following the py4dgeo outlier removal notebook).
+        The result is stored under the key ``scor_res{scan_resolution}_inc{increment}`` using the unadjusted resolution of the respective point cloud.
+
+        .. seealso::
+           Tabernig & Höfle (2026): https://doi.org/10.5194/isprs-annals-XI-2-2026-155-2026
+
+        :param scan_position: 3D scan position (x, y, z) of the reference scan in the coordinate system of the point cloud. Also used for all compare point clouds unless ``scan_positions_comp`` is given.
+        :type scan_position: Sequence[float] | np.ndarray
+        :param scan_resolution: Angular resolution of the scan in degrees. Also used for all compare point clouds unless ``scan_resolutions_comp`` is given.
+        :type scan_resolution: float
+        :param increment: Size of the angular neighborhood: 0.5 selects the four adjacent grid cells, a positive integer all cells within that many angular bins.
+        :type increment: float
+        :param only_last_returns: If True, only last returns (``return_number == number_of_returns``) are used as neighborhood candidates. Requires the ``return_number`` and ``number_of_returns`` attributes in all point clouds. Default is True.
+        :type only_last_returns: bool
+        :param scan_positions_comp: 3D scan positions (one per compare point cloud, in the order of ``compare``) if they differ from ``scan_position``. Must have the same length as the number of compare point clouds. Default is None.
+        :type scan_positions_comp: Sequence[Sequence[float]] | np.ndarray | None
+        :param scan_resolutions_comp: Angular resolutions in degrees (one per compare point cloud, in the order of ``compare``) if they differ from ``scan_resolution``. Must have the same length as the number of compare point clouds. Default is None.
+        :type scan_resolutions_comp: Sequence[float] | np.ndarray | None
+
+        :raises ValueError: If the reference or compare point clouds are not loaded, if ``only_last_returns`` is set but the return attributes are missing, if the number of ``scan_positions_comp`` / ``scan_resolutions_comp`` entries does not match the number of compare point clouds, if a scan resolution is not positive, or if no last returns are found.
+        :raises py4dgeo.util.Py4DGeoError: If a scan position or the increment is invalid (validated by py4dgeo).
+        """
+        self._require_loaded("computing scan outlier ratio")
+        if only_last_returns and any(
+            pc.return_number is None or pc.number_of_returns is None
+            for pc in self._all_pcs
+        ):
+            raise ValueError(
+                "only_last_returns=True requires 'return_number' and 'number_of_returns' "
+                "in all point clouds. Set only_last_returns=False to use all points."
+            )
+        n_comp = len(self.compare)
+        positions = [scan_position] + (
+            list(scan_positions_comp)
+            if scan_positions_comp is not None
+            else [scan_position] * n_comp
+        )
+        resolutions = [scan_resolution] + (
+            list(scan_resolutions_comp)
+            if scan_resolutions_comp is not None
+            else [scan_resolution] * n_comp
+        )
+        if len(positions) != n_comp + 1 or len(resolutions) != n_comp + 1:
+            raise ValueError(
+                "scan_positions_comp and scan_resolutions_comp must provide one entry "
+                f"per compare point cloud ({n_comp})."
+            )
+        for pc, pos, res in zip(self._all_pcs, positions, resolutions):
+            with logger_context(
+                f"Computing scan outlier ratio for {pc.display_name}. Scan resolution: {res}, increment: {increment}"
+            ):
+                pc.scor[f"scor_res{res}_inc{increment}"] = _scor_for_cloud(
+                    pc, pos, res, increment, only_last_returns
+                )
 
     def compute_geometric_features(
         self,
@@ -839,6 +934,55 @@ class PointCloudPair:
         # write compare
         for compare_pc in self.compare:
             write_las(compare_pc, output_folder / output_name(compare_pc))
+
+
+def _scor_for_cloud(
+    pc: PointCloud,
+    scan_position: Sequence[float] | np.ndarray,
+    scan_resolution: float,
+    increment: float,
+    only_last_returns: bool,
+) -> np.ndarray:
+    """
+    Compute the standard ScOR of a single point cloud against its own (optionally last-return) points.
+
+    :param pc: Point cloud with coordinates (and return attributes if ``only_last_returns``).
+    :type pc: PointCloud
+    :param scan_position: 3D scan position (x, y, z).
+    :type scan_position: Sequence[float] | np.ndarray
+    :param scan_resolution: Angular resolution of the scan in degrees (unadjusted).
+    :type scan_resolution: float
+    :param increment: Size of the angular neighborhood: 0.5 selects the four adjacent grid cells, a positive integer all cells within that many angular bins.
+    :type increment: float
+    :param only_last_returns: Whether to use only last returns as neighborhood candidates.
+    :type only_last_returns: bool
+
+    :return: ScOR value per point of ``pc``.
+    :rtype: np.ndarray
+
+    :raises ValueError: If ``scan_resolution`` is not positive (checked here because the adjustment applied before calling py4dgeo would otherwise mask it) or no last returns are found.
+    :raises py4dgeo.util.Py4DGeoError: If ``scan_position`` or ``increment`` are invalid (validated by py4dgeo).
+    """
+    if pc.coords is None:
+        raise ValueError("PointCloud coordinates are not set.")
+    if not scan_resolution > 0:
+        raise ValueError(
+            f"scan_resolution must be a positive number of degrees, got {scan_resolution}."
+        )
+    if only_last_returns:
+        candidates = pc.coords[pc.return_number == pc.number_of_returns]
+        if candidates.shape[0] == 0:
+            raise ValueError(f"No last returns found in point cloud {pc.display_name}.")
+    else:
+        candidates = pc.coords
+    scor, _, _ = py4dgeo.scan_outlier_ratio(
+        py4dgeo.Epoch(pc.coords),
+        neighborhood_candidate_epochs=py4dgeo.Epoch(candidates),
+        scan_position=scan_position,
+        scan_resolution=2 * scan_resolution + _SCOR_RESOLUTION_OFFSET,
+        increment=increment,
+    )
+    return scor
 
 
 def write_voxelized_point_clouds(
