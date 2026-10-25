@@ -4,7 +4,7 @@ import logging
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import jakteristics
 import laspy
@@ -1127,52 +1127,52 @@ def add_dimension_to_laz(las_file, array, name):
     las_file[name] = array
 
 
+def _lookup_case_insensitive(mapping: dict[str, Any], name: str) -> Any:
+    """Return the value of the key matching ``name`` ignoring case, or ``None`` if there is none."""
+    for key, value in mapping.items():
+        if key.lower() == name:
+            return value
+    return None
+
+
 def get_attribute_data(pc: PointCloud, attribute: str):
     """
     Function to get the data for a given attribute from a PointCloud.
-    The attribute may be
+    The attribute name is matched case-insensitively and may be
     - a direct attribute of the PointCloud object,
     - one of the coordinate axes ("x", "y", "z"),
-    - a geometric feature (e.g. "linearity_0.2")
-    - a voxel feature (e.g. "density_0.5")
-    - an outlier flag
+    - a geometric feature (e.g. "linearity_r0.2"),
+    - a voxel feature (e.g. "density_v0.5"),
+    - a cloud-to-cloud distance (e.g. "c2c_to-reference"),
+    - an outlier flag or a scan outlier ratio.
 
     :param pc: PointCloud object
     :type pc: PointCloud
-    :param attribute: Name of the attribute to retreive
+    :param attribute: Name of the attribute to retrieve
     :type attribute: str
+
+    :raises ValueError: If the attribute is not found.
     """
-    # make attribute lower case
-    attribute = attribute.lower()
+    name = attribute.lower()
 
     # search for attribute in all possible locations
-    if hasattr(pc, attribute):
-        return getattr(pc, attribute)
+    if hasattr(pc, name):
+        return getattr(pc, name)
 
-    if attribute in PointCloud._COORDINATES:
+    if name in PointCloud._COORDINATES:
         if pc.coords is None:
             raise ValueError("PointCloud coordinates are not set.")
-        return pc.coords[:, PointCloud._COORDINATES.index(attribute)]
+        return pc.coords[:, PointCloud._COORDINATES.index(name)]
 
-    # Exact-match lookup for geometric features
-    if attribute in pc.geometric_features:
-        return pc.geometric_features[attribute]
+    # per-point feature dictionaries (keys keep the case of the feature name, e.g. "PCA1_r1.0")
+    for dict_attr in PointCloud._POINT_DICTS:
+        data = _lookup_case_insensitive(getattr(pc, dict_attr), name)
+        if data is not None:
+            return data
 
-    # Exact-match lookup for voxel features; return values array if tuple
-    if attribute in pc.voxel_features:
-        feat = pc.voxel_features[attribute]
+    # voxel features are indexed by voxel; return the values array if stored as a tuple
+    feat = _lookup_case_insensitive(pc.voxel_features, name)
+    if feat is not None:
         return feat[0] if isinstance(feat, tuple) and len(feat) > 0 else feat
-
-    # Exact-match lookup for c2c distances
-    if attribute in pc.c2c:
-        return pc.c2c[attribute]
-
-    # Exact-match lookup for outlier flags
-    if attribute in pc.sor:
-        return pc.sor[attribute]
-
-    # Exact-match lookup for scan outlier ratios
-    if attribute in pc.scor:
-        return pc.scor[attribute]
 
     raise ValueError(f"Attribute {attribute} not found in point clouds.")

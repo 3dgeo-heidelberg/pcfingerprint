@@ -845,3 +845,39 @@ def test_drop_attributes_drops_attribute_missing_in_one_cloud(
     pc_pair_with_coords.compare[0].__dict__[attr] = None
     pc_pair_with_coords.drop_attributes()
     assert all(getattr(pc, attr) is None for pc in pc_pair_with_coords._all_pcs)
+
+
+@pytest.mark.parametrize(
+    "group,key",
+    [
+        ("geometric_features", "PCA1_r1.0"),
+        ("c2c", "C2C_to-Reference"),
+        ("sor", "SOR_k8_std1.0"),
+        ("scor", "ScOR_res0.1_inc1"),
+    ],
+)
+@pytest.mark.parametrize("query", ["exact", "lower", "upper"])
+def test_get_attribute_data_is_case_insensitive(pc_pair_with_coords, group, key, query):
+    """Keys keep the case of the feature name (e.g. jakteristics' PCA1) and must still be found."""
+    pc = pc_pair_with_coords.reference
+    data = np.arange(100.0)
+    getattr(pc, group)[key] = data
+    name = {"exact": key, "lower": key.lower(), "upper": key.upper()}[query]
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, name), data
+    )
+
+
+def test_get_attribute_data_voxel_feature_case_insensitive(pc_pair_with_coords):
+    pc = pc_pair_with_coords.reference
+    pc.voxel_features["PCA1_v0.5"] = (np.arange(5.0), np.zeros((5, 3)), np.arange(5))
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, "pca1_v0.5"), np.arange(5.0)
+    )
+
+
+def test_get_attribute_data_unknown_raises_with_original_name(pc_pair_with_coords):
+    with pytest.raises(ValueError, match="Isotropy_r1.0"):
+        pcfingerprint.pcfingerprint.get_attribute_data(
+            pc_pair_with_coords.reference, "Isotropy_r1.0"
+        )
