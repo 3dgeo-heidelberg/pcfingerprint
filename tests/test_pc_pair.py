@@ -881,3 +881,49 @@ def test_get_attribute_data_unknown_raises_with_original_name(pc_pair_with_coord
         pcfingerprint.pcfingerprint.get_attribute_data(
             pc_pair_with_coords.reference, "Isotropy_r1.0"
         )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "mask",
+        "filter_by_class",
+        "sor",
+        "scor",
+        "geometric_features",
+        "coords",
+        "source",
+    ],
+)
+def test_get_attribute_data_rejects_non_attribute_names(pc_pair_with_coords, name):
+    """Methods and containers of PointCloud must not be returned as attribute data."""
+    with pytest.raises(ValueError, match="not found"):
+        pcfingerprint.pcfingerprint.get_attribute_data(
+            pc_pair_with_coords.reference, name
+        )
+
+
+def test_get_attribute_data_unset_array_raises(pc_pair_with_coords):
+    assert pc_pair_with_coords.reference.intensity is None
+    with pytest.raises(ValueError, match="intensity"):
+        pcfingerprint.pcfingerprint.get_attribute_data(
+            pc_pair_with_coords.reference, "intensity"
+        )
+
+
+def test_get_attribute_data_feature_named_like_method(pc_pair_with_coords):
+    """A feature key equal to a PointCloud method name is found in its dictionary."""
+    pc = pc_pair_with_coords.reference
+    pc.geometric_features["mask"] = np.arange(100.0)
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, "mask"), np.arange(100.0)
+    )
+
+
+def test_get_attribute_data_point_arrays(pc_pair_with_coords_and_attr):
+    pc = pc_pair_with_coords_and_attr.reference
+    for attr in ("gps_time", "intensity", "classification"):
+        np.testing.assert_array_equal(
+            pcfingerprint.pcfingerprint.get_attribute_data(pc, attr.upper()),
+            getattr(pc, attr),
+        )

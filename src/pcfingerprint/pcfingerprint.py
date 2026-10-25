@@ -1139,7 +1139,7 @@ def get_attribute_data(pc: PointCloud, attribute: str):
     """
     Function to get the data for a given attribute from a PointCloud.
     The attribute name is matched case-insensitively and may be
-    - a direct attribute of the PointCloud object,
+    - a per-point array of the PointCloud object (e.g. "intensity", see ``PointCloud._POINT_ARRAYS``),
     - one of the coordinate axes ("x", "y", "z"),
     - a geometric feature (e.g. "linearity_r0.2"),
     - a voxel feature (e.g. "density_v0.5"),
@@ -1151,13 +1151,16 @@ def get_attribute_data(pc: PointCloud, attribute: str):
     :param attribute: Name of the attribute to retrieve
     :type attribute: str
 
-    :raises ValueError: If the attribute is not found.
+    :raises ValueError: If the attribute is not found, or is a per-point array that is not set.
     """
     name = attribute.lower()
 
-    # search for attribute in all possible locations
-    if hasattr(pc, name):
-        return getattr(pc, name)
+    # only known data attributes are exposed, not arbitrary members of PointCloud (methods, dictionaries, ...)
+    if name in PointCloud._POINT_ARRAYS:
+        data = getattr(pc, name)
+        if data is None:
+            raise ValueError(f"Attribute {attribute} is not set in this point cloud.")
+        return data
 
     if name in PointCloud._COORDINATES:
         if pc.coords is None:
