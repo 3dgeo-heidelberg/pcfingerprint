@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -33,6 +33,9 @@ logger = logging.getLogger("pcfingerprint")
 
 _LAS_SUFFIXES = (".las", ".laz")
 _XYZ_SUFFIXES = (".txt", ".xyz", ".csv")
+
+VoxelFeature = tuple[np.ndarray, np.ndarray, np.ndarray | None]
+"""Voxel-based feature: (feature values per voxel, voxel coordinates Vx3, index of the representative point per voxel or None)."""
 
 _SCOR_RESOLUTION_OFFSET = 0.0028
 """Offset [deg] added to the doubled scan resolution passed to py4dgeo's ScOR (as in the py4dgeo outlier removal notebook)."""
@@ -66,7 +69,7 @@ class PointCloud:
         number_of_returns: np.ndarray | None = None,
         intensity: np.ndarray | None = None,
         classification: np.ndarray | None = None,
-    ):
+    ) -> None:
         self.coords: np.ndarray | None = coords
         """Nx3 array of point coordinates."""
         self.source: Path | str | None = None
@@ -83,8 +86,8 @@ class PointCloud:
         """Int array of point classification codes."""
         self.geometric_features: dict[str, np.ndarray] = {}
         """Feature name to per-point float array."""
-        self.voxel_features: dict[str, np.ndarray] = {}
-        """Feature name to float array for voxel-based features."""
+        self.voxel_features: dict[str, VoxelFeature] = {}
+        """Feature name to voxel-based feature (values, voxel coordinates, representative point indices)."""
         self.c2c: dict[str, np.ndarray] = {}
         """Cloud-to-cloud distances, keyed by distance name (e.g. ``"c2c_to-reference"``)."""
         self.sor: dict[str, np.ndarray] = {}
@@ -97,35 +100,39 @@ class PointCloud:
         """File name of the source, or ``"unknown source"``; used in log messages."""
         return Path(self.source).name if self.source is not None else "unknown source"
 
-    def shift_z_to_zero(self):
+    def shift_z_to_zero(self) -> None:
         """Shift the z-coordinates so that the minimum z-value is zero."""
         if self.coords is not None:
             self.coords[:, 2] = shift_to_zero(self.coords[:, 2])
         else:
             raise ValueError("PointCloud coordinates are not set.")
 
-    def shift_gpstime_to_zero(self):
+    def shift_gpstime_to_zero(self) -> None:
         """Shift the gps_time so that the minimum gps_time is zero."""
         if self.gps_time is not None:
             self.gps_time = shift_to_zero(self.gps_time)
         else:
             raise ValueError("PointCloud gps_time is not set.")
 
-    def robust_scale_intensity(self):
+    def robust_scale_intensity(self) -> None:
         """Perform robust scaling on intensity values."""
         if self.intensity is not None:
             self.intensity = scale_robust(self.intensity)
         else:
             raise ValueError("PointCloud intensity is not set.")
 
-    def standardize_intensity(self):
+    def standardize_intensity(self) -> None:
         """Standardize intensity values (z-score normalization)."""
         if self.intensity is not None:
             self.intensity = standardize(self.intensity)
         else:
             raise ValueError("PointCloud intensity is not set.")
 
-    def _selection_mask_and_index_map(self, indices):
+    def _selection_mask_and_index_map(
+        self, indices: np.ndarray | Sequence[int]
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if self.coords is None:
+            raise ValueError("PointCloud coordinates are not set.")
         if isinstance(indices, np.ndarray) and indices.dtype == bool:
             if indices.shape[0] != self.coords.shape[0]:
                 raise ValueError("Boolean mask length does not match point cloud size.")
@@ -140,7 +147,11 @@ class PointCloud:
         index_map[selected_indices] = np.arange(selected_indices.shape[0])
         return point_mask, index_map
 
-    def _mask_voxel_feature(self, feat_data, point_mask, index_map):
+    def _mask_voxel_feature(
+        self, feat_data: VoxelFeature, point_mask: np.ndarray, index_map: np.ndarray
+    ) -> VoxelFeature:
+        if self.coords is None:
+            raise ValueError("PointCloud coordinates are not set.")
         if not isinstance(feat_data, tuple) or len(feat_data) < 2:
             return feat_data
 
@@ -159,7 +170,7 @@ class PointCloud:
         filtered_rep_indices = index_map[rep_indices[voxel_mask]]
         return (filtered_values, filtered_coords, filtered_rep_indices)
 
-    def filter_by_class(self, classes: list[int]):
+    def filter_by_class(self, classes: list[int]) -> PointCloud:
         """
         Filter the point cloud to specified classes using the "classification" attribute (if present).
 
@@ -185,7 +196,7 @@ class PointCloud:
                 "PointCloud does not have a 'classification' attribute to filter by."
             )
 
-    def mask(self, indices):
+    def mask(self, indices: np.ndarray | Sequence[int]) -> PointCloud:
         """
         Mask the point cloud using the given indices.
 
@@ -233,7 +244,7 @@ class PointCloudPair:
         standardize_intensity: bool = False,
         robust_scale_intensity: bool = False,
         class_mapping: dict[int, str] | None = None,
-    ):
+    ) -> None:
         self.reference: PointCloud = PointCloud()
         """Reference PointCloud"""
         self.compare: list[PointCloud] = []
@@ -279,7 +290,7 @@ class PointCloudPair:
                 f"Please load both reference and compare point clouds before {action}."
             )
 
-    def drop_attributes(self):
+    def drop_attributes(self) -> None:
         """
         Drop attributes that are not present in all point clouds in the pair to ensure comparability.
         """
@@ -291,7 +302,7 @@ class PointCloudPair:
                 for pc in self._all_pcs:
                     setattr(pc, attr, None)
 
-    def load_reference(self, filepath: str | Path):
+    def load_reference(self, filepath: str | Path) -> None:
         """
         Load the reference point cloud from a file. Supported formats are LAS/LAZ and XYZ.
         The previously loaded reference is only replaced if loading and preprocessing succeed.
@@ -308,7 +319,7 @@ class PointCloudPair:
         if self.compare != []:
             self.drop_attributes()
 
-    def load_compare(self, filepaths: Sequence[str | Path] | str | Path):
+    def load_compare(self, filepaths: Sequence[str | Path] | str | Path) -> None:
         """
         Load comparison point cloud(s) from file(s).
         Users can provide both a single file path (str or Path) and a list of file paths.
@@ -333,7 +344,7 @@ class PointCloudPair:
 
     def compute_statistical_outlier_removal(
         self, k: int = 8, std_dev_multiplier: float = 1.0
-    ):
+    ) -> None:
         """
         Perform statistical outlier removal (SOR) on the reference and all comparison point clouds.
         Uses py4dgeo.statistical_outlier_removal and adds a boolean array named by the parameters to the sor dictionary of each PointCloud.
@@ -434,7 +445,7 @@ class PointCloudPair:
         backend: str = "pgeof",
         chunking: bool = False,
         max_points_per_chunk: int | None = None,
-    ):
+    ) -> None:
         """
         Compute geometric features for all point clouds in the pair
 
@@ -478,7 +489,9 @@ class PointCloudPair:
         primary, fallback = _split_features_by_backend(feature_names, backend)
         other = "jakteristics" if backend == "pgeof" else "pgeof"
 
-        def _compute(pc, compute_fn, **kwargs):
+        def _compute(
+            pc: PointCloud, compute_fn: Callable[..., None], **kwargs: Any
+        ) -> None:
             if chunking:
                 run_chunked_computation(
                     pc, compute_fn, max_points_per_chunk, buffer=radius, **kwargs
@@ -511,16 +524,16 @@ class PointCloudPair:
     def compute_voxel_features(
         self,
         voxel_size: float,
-        voxel_origin=None,
+        voxel_origin: list[float] | None = None,
         feature_names: list[str] | None = None,
-    ):
+    ) -> tuple[py4dgeo.Vapc, list[py4dgeo.Vapc]]:
         """
         Compute voxel-based geometric features for all point clouds in the pair using VAPC.
 
         :param voxel_size: Voxel edge length used for voxel-based feature computation.
         :type voxel_size: float
         :param voxel_origin: Optional voxel grid origin passed to the VAPC backend. If None, [0.0, 0.0, 0.0] is used.
-        :type voxel_origin: array-like, optional
+        :type voxel_origin: list[float] | None
         :param feature_names: List of VAPC features to compute. Supported features (py4dgeo v1.1) are "count", "density", "covariance", "eigenvalues", "linearity", "planarity", "sphericity", "sum_of_eigenvalues","omnivariance", "eigenentropy", "anisotropy", "surface_variation". If empty, all available features will be computed.
         :type feature_names: list[str] | None
 
@@ -530,7 +543,7 @@ class PointCloudPair:
         self._require_loaded("computing voxel features")
         if feature_names is None:
             feature_names = []
-        vapc_list = []
+        vapc_list: list[py4dgeo.Vapc] = []
         for pc in self._all_pcs:
             with logger_context(
                 f"Computing voxel features for {pc.display_name} using VAPC. {feature_names}, voxel size: {voxel_size}"
@@ -545,7 +558,7 @@ class PointCloudPair:
             vapc_list[1:],
         )  # return reference VAPC and list of compare VAPCs
 
-    def compute_c2c_distances(self, max_distance: float = np.inf):
+    def compute_c2c_distances(self, max_distance: float = np.inf) -> None:
         """
         Compute cloud-to-cloud distances between the reference and each comparison point cloud (both directions).
         The distances are stored in
@@ -572,7 +585,7 @@ class PointCloudPair:
             )
             compare_pc.c2c["c2c_to-reference"] = c2c_rev.run()
 
-    def filter_by_class(self, classes: list[int]):
+    def filter_by_class(self, classes: list[int]) -> PointCloudPair:
         """
         Filter the point clouds in the PointCloudPair to specified classes using the "classification" attribute (if present).
 
@@ -603,7 +616,7 @@ class PointCloudPair:
 
         return new_pair
 
-    def _collect_all_attributes(self, compare) -> list[str]:
+    def _collect_all_attributes(self, compare: list[PointCloud]) -> list[str]:
         """
         Collect all available attributes from the reference and compare point clouds to use
         for report generation. Returns a deterministic, deduplicated list of attribute names.
@@ -615,7 +628,7 @@ class PointCloudPair:
         """
         attributes: list[str] = []
 
-        def add_unique(name: str):
+        def add_unique(name: str) -> None:
             if name not in attributes:
                 attributes.append(name)
 
@@ -635,7 +648,9 @@ class PointCloudPair:
 
         return attributes
 
-    def _expand_attribute_names(self, compare, attribute_list: list[str]) -> list[str]:
+    def _expand_attribute_names(
+        self, compare: list[PointCloud], attribute_list: list[str]
+    ) -> list[str]:
         """
         Expand attribute names to match available features. For each attribute in the list:
         - If an exact match exists in geometric_features or standard attributes, keep it as-is
@@ -701,7 +716,7 @@ class PointCloudPair:
         visualizations: list[str] | None = None,
         vis_backend: str = "matplotlib",
         preview: bool = True,
-    ):
+    ) -> None:
         """
         Generate an HTML report comparing the reference and the comparison point clouds.
         If more than five comparison point clouds are loaded, only the first five are included.
@@ -890,7 +905,9 @@ def _scor_for_cloud(
 
 
 def write_voxelized_point_clouds(
-    vapc, filebase: str | Path, reduce_to_feature="closest_to_centroids"
+    vapc: py4dgeo.Vapc,
+    filebase: str | Path,
+    reduce_to_feature: str = "closest_to_centroids",
 ) -> None:
     """
     Write voxelized point cloud (with voxel-based features) to disk as a LAS file
@@ -937,7 +954,7 @@ def _read_point_cloud(filepath: str | Path) -> PointCloud:
     return pc
 
 
-def read_las_file(filepath):
+def read_las_file(filepath: str | Path) -> PointCloud:
     """Create a PointCloud from a LAS/LAZ file
 
     :param filepath:
@@ -983,7 +1000,7 @@ def read_las_file(filepath):
     return pc
 
 
-def read_xyz_file(filepath):
+def read_xyz_file(filepath: str | Path) -> PointCloud:
     """Create a PointCloud from a XYZ file
 
     :param filepath:
@@ -995,7 +1012,7 @@ def read_xyz_file(filepath):
     :rtype: PointCloud
     """
     # find delimiter by checking the first line for common delimiters
-    delimiter = None
+    delimiter: str | None = None
     with open(filepath) as f:
         first_line = f.readline()
         for d in [",", "\t", " ", ";"]:
@@ -1049,11 +1066,11 @@ def read_xyz_file(filepath):
 def write_las(
     pc: PointCloud,
     outfile: str | Path,
-    las_point_format=7,
-    las_version="1.4",
-    las_scales=None,
-    las_offset=None,
-):
+    las_point_format: int = 7,
+    las_version: str = "1.4",
+    las_scales: Sequence[float] | np.ndarray | None = None,
+    las_offset: Sequence[float] | np.ndarray | None = None,
+) -> None:
     """
     Function to write a PointCloud object to a LAS/LAZ file with additional attributes.
     Modified after vapc: https://github.com/3dgeo-heidelberg/vapc/blob/main/src/vapc/datahandler.py#L97-L187
@@ -1107,7 +1124,7 @@ def write_las(
     las.write(outfile)
 
 
-def add_dimension_to_laz(las_file, array, name):
+def add_dimension_to_laz(las_file: laspy.LasData, array: np.ndarray, name: str) -> None:
     """
     Adds a new attribute dimension to the LAZ file.
 
@@ -1135,7 +1152,7 @@ def _lookup_case_insensitive(mapping: dict[str, Any], name: str) -> Any:
     return None
 
 
-def get_attribute_data(pc: PointCloud, attribute: str):
+def get_attribute_data(pc: PointCloud, attribute: str) -> np.ndarray:
     """
     Function to get the data for a given attribute from a PointCloud.
     The attribute name is matched case-insensitively and may be
