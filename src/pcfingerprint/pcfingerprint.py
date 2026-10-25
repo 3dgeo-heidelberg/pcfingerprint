@@ -30,6 +30,8 @@ from pcfingerprint.utils import (
 
 logger = logging.getLogger("pcfingerprint")
 
+_XYZ_DELIMITERS = (",", "\t", " ", ";")
+
 
 class PointCloud:
     def __init__(
@@ -917,6 +919,14 @@ def read_las_file(filepath):
     return pc
 
 
+def _is_number(text: str) -> bool:
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
 def read_xyz_file(filepath):
     """Create a PointCloud from a XYZ file
 
@@ -928,22 +938,23 @@ def read_xyz_file(filepath):
         A PointCloud object containing the data from the file.
     :rtype: PointCloud
     """
+    with open(filepath) as f:
+        first_line = f.readline()
+
     # find delimiter by checking the first line for common delimiters
     delimiter = None
-    with open(filepath) as f:
-        first_line = f.readline()
-        for d in [",", "\t", " ", ";"]:
-            # needs to occur at least twice in the first line to be considered a delimiter
-            if first_line.count(d) >= 2:
-                delimiter = d
-                break
+    for d in _XYZ_DELIMITERS:
+        # needs to occur at least twice in the first line to be considered a delimiter
+        if first_line.count(d) >= 2:
+            delimiter = d
+            break
 
-    # check if it has a header
-    with open(filepath) as f:
-        first_line = f.readline()
-        has_header = not all(
-            c.isdigit() or c.isspace() or c == "." for c in first_line
-        )  # crude check: if first line contains non-numeric characters, assume it's a header
+    # check if it has a header: if every entry of the first line is a number, there is none
+    first_line_entries = first_line
+    for d in _XYZ_DELIMITERS:
+        first_line_entries = first_line_entries.replace(d, " ")
+    has_header = not all(_is_number(entry) for entry in first_line_entries.split())
+    fields: list[str] = []
     if has_header:
         data = np.loadtxt(filepath, skiprows=1, delimiter=delimiter)
         fields = first_line.strip().split(delimiter)

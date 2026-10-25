@@ -15,13 +15,52 @@ def test_load_point_clouds(pc_pair_uls_voxels):
     assert all(sim.coords is not None for sim in pc_pair_uls_voxels.compare)
 
 
-def test_load_point_clouds_xyz(pc_xyz):
+def test_read_xyz_with_header(pc_xyz_with_header):
     pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_reference(pc_xyz)
+    pc_pair.load_reference(pc_xyz_with_header)
+    np.testing.assert_array_equal(
+        pc_pair.reference.coords, [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]
+    )
+    np.testing.assert_array_equal(pc_pair.reference.intensity, [100, 150, 200])
 
-    assert pc_pair.reference.coords is not None
-    assert pc_pair.reference.coords.shape[1] == 3
-    assert pc_pair.reference.intensity is not None
+
+def test_read_xyz_without_header(pc_xyz_without_header):
+    """Without a header, all rows are data: the first three columns are x, y and z, nothing else is read."""
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.load_reference(pc_xyz_without_header)
+    np.testing.assert_array_equal(
+        pc_pair.reference.coords, [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]
+    )
+    assert pc_pair.reference.intensity is None
+
+
+def test_read_xyz_header_does_not_change_coordinates(
+    pc_xyz_with_header, pc_xyz_without_header
+):
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.load_reference(pc_xyz_with_header)
+    pc_pair.load_compare(pc_xyz_without_header)
+    np.testing.assert_array_equal(pc_pair.reference.coords, pc_pair.compare[0].coords)
+
+
+def test_read_xyz_without_header_negative_and_scientific_numbers(tmp_path):
+    """Signs and exponents are part of numbers and must not be mistaken for a header."""
+    xyz_path = tmp_path / "numbers.xyz"
+    xyz_path.write_text("-1.5 2e-3 +3\n4 -5e2 6\n")
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.load_reference(xyz_path)
+    np.testing.assert_array_equal(
+        pc_pair.reference.coords, [[-1.5, 2e-3, 3.0], [4.0, -500.0, 6.0]]
+    )
+
+
+def test_read_xyz_semicolon_delimited_with_header(tmp_path):
+    xyz_path = tmp_path / "semicolon.csv"
+    xyz_path.write_text("x;y;z;intensity\n0;0;0;100\n1;1;1;150\n")
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.load_reference(xyz_path)
+    assert pc_pair.reference.coords.shape == (2, 3)
+    np.testing.assert_array_equal(pc_pair.reference.intensity, [100, 150])
 
 
 @pytest.mark.integration
@@ -527,9 +566,9 @@ def test_filter_by_class_preserves_class_mapping(pc_pair_with_coords_and_attr):
 
 
 @pytest.mark.parametrize("suffix", [".CSV", ".Csv", ".XYZ"])
-def test_load_point_clouds_uppercase_extension(pc_xyz, tmp_path, suffix):
+def test_load_point_clouds_uppercase_extension(pc_xyz_with_header, tmp_path, suffix):
     upper_path = tmp_path / f"UPPER{suffix}"
-    upper_path.write_bytes(pc_xyz.read_bytes())
+    upper_path.write_bytes(pc_xyz_with_header.read_bytes())
     pc_pair = pcfingerprint.PointCloudPair()
     pc_pair.load_reference(upper_path)
     pc_pair.load_compare(upper_path)
