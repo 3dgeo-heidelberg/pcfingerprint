@@ -30,6 +30,9 @@ from pcfingerprint.utils import (
 
 logger = logging.getLogger("pcfingerprint")
 
+_LAS_SUFFIXES = (".las", ".laz")
+_XYZ_SUFFIXES = (".txt", ".xyz", ".csv")
+
 _SCOR_RESOLUTION_OFFSET = 0.0028
 """Offset [deg] added to the doubled scan resolution passed to py4dgeo's ScOR (as in the py4dgeo outlier removal notebook)."""
 
@@ -295,16 +298,7 @@ class PointCloudPair:
         """
         self._check_intensity_scaling_options()
         logger.info(f"Loading reference point cloud from {filepath}...")
-        # read based on file extension
-        if Path(filepath).suffix in [".las", ".laz"]:
-            reference = read_las_file(filepath)
-        elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
-            reference = read_xyz_file(filepath)
-        else:
-            raise ValueError(
-                f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
-            )
-        reference.source = Path(filepath)
+        reference = _read_point_cloud(filepath)
         self._preprocess([reference])
         self.reference = reference
         # if comparison point cloud is already loaded, drop non-overlapping attributes
@@ -327,15 +321,7 @@ class PointCloudPair:
         new_pcs: list[PointCloud] = []
         for filepath in filepaths:
             logger.info(f"Loading comparison point cloud from {filepath}...")
-            if Path(filepath).suffix in [".las", ".laz"]:
-                new_pcs.append(read_las_file(filepath))
-            elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
-                new_pcs.append(read_xyz_file(filepath))
-            else:
-                raise ValueError(
-                    f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
-                )
-            new_pcs[-1].source = Path(filepath)
+            new_pcs.append(_read_point_cloud(filepath))
         self._preprocess(new_pcs)
         self.compare.extend(new_pcs)
         # if reference world point cloud is already loaded, drop non-overlapping attributes
@@ -929,6 +915,32 @@ def write_voxelized_point_clouds(
         f"Writing voxelized point cloud to {outpath}, reduced to {reduce_to_feature}..."
     )
     vapc.save_as_las(outpath)
+
+
+def _read_point_cloud(filepath: str | Path) -> PointCloud:
+    """
+    Read a point cloud from a LAS/LAZ or XYZ file, chosen by the (case-insensitive) file extension.
+
+    :param filepath: File to read.
+    :type filepath: str | Path
+
+    :return: The point cloud, with ``source`` set to ``filepath``.
+    :rtype: PointCloud
+
+    :raises ValueError: If the file extension is not supported.
+    """
+    path = Path(filepath)
+    suffix = path.suffix.lower()
+    if suffix in _LAS_SUFFIXES:
+        pc = read_las_file(path)
+    elif suffix in _XYZ_SUFFIXES:
+        pc = read_xyz_file(path)
+    else:
+        raise ValueError(
+            f"File format {path.suffix} not supported. Please provide a LAS/LAZ or XYZ file."
+        )
+    pc.source = path
+    return pc
 
 
 def read_las_file(filepath):
