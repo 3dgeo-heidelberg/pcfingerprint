@@ -4,6 +4,7 @@ import logging
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
+from typing import ClassVar
 
 import jakteristics
 import laspy
@@ -38,6 +39,25 @@ _SCOR_RESOLUTION_OFFSET = 0.0028
 
 
 class PointCloud:
+    _COORDINATES: ClassVar[tuple[str, ...]] = ("x", "y", "z")
+    """Names of the coordinate axes, in the column order of ``coords``."""
+    _POINT_ARRAYS: ClassVar[tuple[str, ...]] = (
+        "gps_time",
+        "return_number",
+        "number_of_returns",
+        "intensity",
+        "classification",
+    )
+    """Names of optional per-point arrays that are subset together with ``coords`` when masking."""
+    _POINT_DICTS: ClassVar[tuple[str, ...]] = (
+        "geometric_features",
+        "c2c",
+        "sor",
+        "scor",
+    )
+    """Names of dictionaries holding one per-point array per key that are subset together with ``coords`` when masking.
+    ``voxel_features`` is deliberately not listed: it is indexed by voxel, not by point, and is handled separately."""
+
     def __init__(
         self,
         coords: np.ndarray | None = None,
@@ -182,32 +202,20 @@ class PointCloud:
             # copy over all other attributes if they exist
             if self.source is not None:
                 new_pc.source = self.source
-            if self.gps_time is not None:
-                new_pc.gps_time = self.gps_time[indices]
-            if self.return_number is not None:
-                new_pc.return_number = self.return_number[indices]
-            if self.number_of_returns is not None:
-                new_pc.number_of_returns = self.number_of_returns[indices]
-            if self.intensity is not None:
-                new_pc.intensity = self.intensity[indices]
-            if self.classification is not None:
-                new_pc.classification = self.classification[indices]
-            # geometric features
-            for feat_name, feat_data in self.geometric_features.items():
+            for attr in self._POINT_ARRAYS:
+                data = getattr(self, attr)
+                if data is not None:
+                    setattr(new_pc, attr, data[indices])
+            for feat_name in self.geometric_features:
                 warnings.warn(
                     f"Masking geometric feature {feat_name}. If using mask to subset points, consider recomputing geometric features",
                     UserWarning,
                 )
-                new_pc.geometric_features[feat_name] = feat_data[indices]
-            # c2c distances
-            for dist_name, dist_data in self.c2c.items():
-                new_pc.c2c[dist_name] = dist_data[indices]
-            # outlier features
-            for feat_name, feat_data in self.sor.items():
-                new_pc.sor[feat_name] = feat_data[indices]
-            for feat_name, feat_data in self.scor.items():
-                new_pc.scor[feat_name] = feat_data[indices]
-            # voxel features
+            for attr in self._POINT_DICTS:
+                masked: dict[str, np.ndarray] = getattr(new_pc, attr)
+                for name, data in getattr(self, attr).items():
+                    masked[name] = data[indices]
+            # voxel features are indexed by voxel, not by point, and need their indices remapped
             for feat_name, feat_data in self.voxel_features.items():
                 new_pc.voxel_features[feat_name] = self._mask_voxel_feature(
                     feat_data, point_mask, index_map
@@ -275,12 +283,7 @@ class PointCloudPair:
         """
         Drop attributes that are not present in all point clouds in the pair to ensure comparability.
         """
-        for attr in [
-            "gps_time",
-            "return_number",
-            "number_of_returns",
-            "intensity",
-        ]:
+        for attr in PointCloud._POINT_ARRAYS:
             if any(getattr(pc, attr) is None for pc in self._all_pcs):
                 logger.info(
                     f"Dropping attribute '{attr}' as it is not present in all point clouds."
@@ -616,28 +619,19 @@ class PointCloudPair:
             if name not in attributes:
                 attributes.append(name)
 
-        # start with coordinates)
-        for coord in ("x", "y", "z"):
+        # start with coordinates
+        for coord in PointCloud._COORDINATES:
             add_unique(coord)
 
-        standard_attributes = [
-            "gps_time",
-            "return_number",
-            "number_of_returns",
-            "intensity",
-            "classification",
-        ]
-        for pc in [self.reference] + compare:
-            for attr in standard_attributes:
-                if getattr(pc, attr, None) is not None:
+        # use the (possibly truncated) compare list, not all point clouds of the pair
+        for pc in [self.reference, *compare]:
+            for attr in PointCloud._POINT_ARRAYS:
+                if getattr(pc, attr) is not None:
                     add_unique(attr)
             # sort feature keys to ensure consistent ordering across runs
-            for attr in sorted(pc.geometric_features.keys()):
-                add_unique(attr)
-            for attr in sorted(pc.voxel_features.keys()):
-                add_unique(attr)
-            for attr in sorted(pc.c2c.keys()):
-                add_unique(attr)
+            for dict_attr in (*PointCloud._POINT_DICTS, "voxel_features"):
+                for name in sorted(getattr(pc, dict_attr)):
+                    add_unique(name)
 
         return attributes
 
@@ -1155,11 +1149,10 @@ def get_attribute_data(pc: PointCloud, attribute: str):
     if hasattr(pc, attribute):
         return getattr(pc, attribute)
 
-    if attribute in ["x", "y", "z"]:
+    if attribute in PointCloud._COORDINATES:
         if pc.coords is None:
             raise ValueError("PointCloud coordinates are not set.")
-        coord_index = {"x": 0, "y": 1, "z": 2}[attribute]
-        return pc.coords[:, coord_index]
+        return pc.coords[:, PointCloud._COORDINATES.index(attribute)]
 
     # Exact-match lookup for geometric features
     if attribute in pc.geometric_features:
@@ -1177,5 +1170,9 @@ def get_attribute_data(pc: PointCloud, attribute: str):
     # Exact-match lookup for outlier flags
     if attribute in pc.sor:
         return pc.sor[attribute]
+
+    # Exact-match lookup for scan outlier ratios
+    if attribute in pc.scor:
+        return pc.scor[attribute]
 
     raise ValueError(f"Attribute {attribute} not found in point clouds.")

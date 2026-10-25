@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from py4dgeo.util import Py4DGeoError
@@ -737,3 +739,109 @@ def test_load_compare_preprocesses_only_new_clouds(pc_xyz):
     pc_pair.load_compare(pc_xyz)
     assert first.coords[:, 2].min() == pytest.approx(5.0)
     assert pc_pair.compare[1].coords[:, 2].min() == pytest.approx(0.0)
+
+
+def test_mask_subsets_all_per_point_attributes(pc_pair_with_coords_and_attr_and_feats):
+    pc = pc_pair_with_coords_and_attr_and_feats.reference
+    n = pc.coords.shape[0]
+    pc.return_number = np.ones(n, dtype=int)
+    pc.number_of_returns = np.full(n, 2)
+    pc.c2c["c2c_to-reference"] = rng.random(n)
+    pc.sor["sor_k8_std1.0"] = rng.random(n) > 0.5
+    pc.scor["scor_res0.1_inc1"] = rng.random(n)
+    pc.source = Path("ref.las")
+
+    indices = np.array([5, 3, 40, 41])
+    with pytest.warns(UserWarning, match="Masking geometric feature"):
+        masked = pc.mask(indices)
+
+    assert masked.source == pc.source
+    np.testing.assert_array_equal(masked.coords, pc.coords[indices])
+    for attr in pcfingerprint.PointCloud._POINT_ARRAYS:
+        np.testing.assert_array_equal(getattr(masked, attr), getattr(pc, attr)[indices])
+    for attr in pcfingerprint.PointCloud._POINT_DICTS:
+        original = getattr(pc, attr)
+        assert original, f"test data must contain entries for {attr}"
+        assert getattr(masked, attr).keys() == original.keys()
+        for name, data in original.items():
+            np.testing.assert_array_equal(getattr(masked, attr)[name], data[indices])
+
+
+def test_mask_remaps_voxel_features_separately(pc_pair_with_coords_and_attr_and_feats):
+    pc = pc_pair_with_coords_and_attr_and_feats.reference
+    indices = np.arange(0, 100, 2)  # keep even points only
+    with pytest.warns(UserWarning, match="Masking geometric feature"):
+        masked = pc.mask(indices)
+
+    assert "voxel_features" not in pcfingerprint.PointCloud._POINT_DICTS
+    for name, (values, voxel_coords, rep_indices) in pc.voxel_features.items():
+        m_values, m_coords, m_rep = masked.voxel_features[name]
+        keep = np.isin(
+            rep_indices, indices
+        )  # voxels whose representative point is kept
+        np.testing.assert_array_equal(m_values, values[keep])
+        np.testing.assert_array_equal(m_coords, voxel_coords[keep])
+        # representative indices now refer to positions in the masked point cloud
+        np.testing.assert_array_equal(
+            masked.coords[m_rep], pc.coords[rep_indices[keep]]
+        )
+
+
+def test_collect_all_attributes_includes_all_attribute_groups(
+    pc_pair_with_coords_and_attr_and_feats,
+):
+    pc_pair = pc_pair_with_coords_and_attr_and_feats
+    pc_pair.compute_c2c_distances()
+    pc_pair.compute_statistical_outlier_removal()
+    pc_pair.reference.scor["scor_res0.1_inc1"] = np.zeros(100)
+    attributes = pc_pair._collect_all_attributes(pc_pair.compare)
+    assert attributes[:3] == ["x", "y", "z"]
+    for expected in [
+        "gps_time",
+        "intensity",
+        "classification",
+        "linearity_r0.05",
+        "linearity_v0.5",
+        "c2c_to-reference",
+        "sor_k8_std1.0",
+        "scor_res0.1_inc1",
+    ]:
+        assert expected in attributes
+    assert len(attributes) == len(set(attributes))
+
+
+def test_collect_all_attributes_uses_given_compare_list(
+    pc_pair_with_coords_and_attr_and_feats,
+):
+    """Only the passed compare clouds are considered (the report truncates to five)."""
+    pc_pair = pc_pair_with_coords_and_attr_and_feats
+    pc_pair.compare[0].geometric_features["only_in_compare_r1.0"] = np.zeros(100)
+    assert "only_in_compare_r1.0" in pc_pair._collect_all_attributes(pc_pair.compare)
+    assert "only_in_compare_r1.0" not in pc_pair._collect_all_attributes([])
+
+
+def test_get_attribute_data_scor_and_coordinates(pc_pair_with_coords):
+    pc = pc_pair_with_coords.reference
+    pc.scor["scor_res0.1_inc1"] = np.arange(100.0)
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, "scor_res0.1_inc1"),
+        np.arange(100.0),
+    )
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, "Z"), pc.coords[:, 2]
+    )
+
+
+@pytest.mark.parametrize(
+    "attr",
+    ["gps_time", "return_number", "number_of_returns", "intensity", "classification"],
+)
+def test_drop_attributes_drops_attribute_missing_in_one_cloud(
+    pc_pair_with_coords, attr
+):
+    n = 100
+    for pc in pc_pair_with_coords._all_pcs:
+        setattr(pc, attr, np.zeros(n, dtype=int))
+    pc_pair_with_coords.compare[0].__dict__[attr] = None
+    pc_pair_with_coords.drop_attributes()
+    assert all(getattr(pc, attr) is None for pc in pc_pair_with_coords._all_pcs)
