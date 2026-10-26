@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from py4dgeo.util import Py4DGeoError
@@ -54,7 +56,7 @@ def test_create_pointcloud_numpy():
     assert pc.number_of_returns.shape == (100,)
 
 
-def test_geometric_features_backend_fallback(pc_pair_with_coords):
+def test_geometric_features_backend_fallback_pgeof(pc_pair_with_coords):
     with pytest.warns(UserWarning, match="Features .* not available in"):
         pc_pair_with_coords.compute_geometric_features(
             feature_names=["linearity", "planarity", "eigenvalue1"],
@@ -64,6 +66,47 @@ def test_geometric_features_backend_fallback(pc_pair_with_coords):
     assert "linearity_r1.0" in pc_pair_with_coords.reference.geometric_features
     assert "planarity_r1.0" in pc_pair_with_coords.reference.geometric_features
     assert "eigenvalue1_r1.0" in pc_pair_with_coords.reference.geometric_features
+
+
+def test_geometric_features_backend_fallback_jakteristics(pc_pair_with_coords):
+    with pytest.warns(UserWarning, match="Features .* not available in"):
+        pc_pair_with_coords.compute_geometric_features(
+            feature_names=["linearity", "planarity", "curvature"],
+            radius=1.0,
+            backend="jakteristics",
+        )
+    assert "linearity_r1.0" in pc_pair_with_coords.reference.geometric_features
+    assert "planarity_r1.0" in pc_pair_with_coords.reference.geometric_features
+    assert "curvature_r1.0" in pc_pair_with_coords.reference.geometric_features
+
+
+def test_geometric_features_unknown_feature_raises(pc_pair_with_coords):
+    with pytest.raises(ValueError, match="not available"):
+        pc_pair_with_coords.compute_geometric_features(
+            feature_names=["isotropy"],
+            radius=1.0,
+            backend="jakteristics",
+        )
+
+
+def test_geometric_features_unknown_feature_fails_before_computing(
+    pc_pair_with_coords,
+):
+    """An unknown feature must not leave partially computed density/features behind."""
+    with pytest.raises(ValueError, match="not available"):
+        pc_pair_with_coords.compute_geometric_features(
+            feature_names=["density", "linearity", "isotropy"],
+            radius=1.0,
+        )
+    assert pc_pair_with_coords.reference.geometric_features == {}
+
+
+def test_geometric_features_unsupported_backend_raises(pc_pair_with_coords):
+    with pytest.raises(ValueError, match="not supported"):
+        pc_pair_with_coords.compute_geometric_features(
+            feature_names=["density"], radius=1.0, backend="nope"
+        )
+    assert pc_pair_with_coords.reference.geometric_features == {}
 
 
 def test_voxel_features_different_voxel_sizes(pc_pair_with_coords):
@@ -640,3 +683,247 @@ def test_mask_preserves_scor(scan_pair):
     np.testing.assert_array_equal(
         masked.scor[SCOR_KEY], scan_pair.reference.scor[SCOR_KEY][:10]
     )
+
+
+def test_require_loaded_checks_compare_coords(pc_pair_with_coords):
+    pc_pair_with_coords.compare.append(pcfingerprint.PointCloud())
+    with pytest.raises(ValueError, match="load both reference and compare"):
+        pc_pair_with_coords.compute_statistical_outlier_removal()
+
+
+def test_both_intensity_scalings_raise_on_init():
+    with pytest.raises(ValueError, match="Cannot apply both"):
+        pcfingerprint.PointCloudPair(
+            standardize_intensity=True, robust_scale_intensity=True
+        )
+
+
+def test_both_intensity_scalings_raise_before_loading(pc_xyz):
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.standardize_intensity = True
+    pc_pair.robust_scale_intensity = True
+    with pytest.raises(ValueError, match="Cannot apply both"):
+        pc_pair.load_compare(pc_xyz)
+    assert pc_pair.compare == []
+    with pytest.raises(ValueError, match="Cannot apply both"):
+        pc_pair.load_reference(pc_xyz)
+    assert pc_pair.reference.coords is None
+
+
+def test_load_compare_failure_leaves_pair_unchanged(pc_xyz, tmp_path):
+    bad = tmp_path / "points.unsupported"
+    bad.write_text("")
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.load_compare(pc_xyz)
+    with pytest.raises(ValueError, match="not supported"):
+        pc_pair.load_compare([pc_xyz, bad])
+    assert len(pc_pair.compare) == 1
+
+
+def test_load_reference_failure_keeps_previous_reference(pc_xyz, tmp_path):
+    bad = tmp_path / "points.unsupported"
+    bad.write_text("")
+    pc_pair = pcfingerprint.PointCloudPair()
+    pc_pair.load_reference(pc_xyz)
+    previous = pc_pair.reference
+    with pytest.raises(ValueError, match="not supported"):
+        pc_pair.load_reference(bad)
+    assert pc_pair.reference is previous
+
+
+def test_load_compare_preprocesses_only_new_clouds(pc_xyz):
+    pc_pair = pcfingerprint.PointCloudPair(shift_z=True)
+    pc_pair.load_compare(pc_xyz)
+    first = pc_pair.compare[0]
+    first.coords[:, 2] += 5.0  # would be shifted back to 0 if preprocessed again
+    pc_pair.load_compare(pc_xyz)
+    assert first.coords[:, 2].min() == pytest.approx(5.0)
+    assert pc_pair.compare[1].coords[:, 2].min() == pytest.approx(0.0)
+
+
+def test_mask_subsets_all_per_point_attributes(pc_pair_with_coords_and_attr_and_feats):
+    pc = pc_pair_with_coords_and_attr_and_feats.reference
+    n = pc.coords.shape[0]
+    pc.return_number = np.ones(n, dtype=int)
+    pc.number_of_returns = np.full(n, 2)
+    pc.c2c["c2c_to-reference"] = rng.random(n)
+    pc.sor["sor_k8_std1.0"] = rng.random(n) > 0.5
+    pc.scor["scor_res0.1_inc1"] = rng.random(n)
+    pc.source = Path("ref.las")
+
+    indices = np.array([5, 3, 40, 41])
+    with pytest.warns(UserWarning, match="Masking geometric feature"):
+        masked = pc.mask(indices)
+
+    assert masked.source == pc.source
+    np.testing.assert_array_equal(masked.coords, pc.coords[indices])
+    for attr in pcfingerprint.PointCloud._POINT_ARRAYS:
+        np.testing.assert_array_equal(getattr(masked, attr), getattr(pc, attr)[indices])
+    for attr in pcfingerprint.PointCloud._POINT_DICTS:
+        original = getattr(pc, attr)
+        assert original, f"test data must contain entries for {attr}"
+        assert getattr(masked, attr).keys() == original.keys()
+        for name, data in original.items():
+            np.testing.assert_array_equal(getattr(masked, attr)[name], data[indices])
+
+
+def test_mask_remaps_voxel_features_separately(pc_pair_with_coords_and_attr_and_feats):
+    pc = pc_pair_with_coords_and_attr_and_feats.reference
+    indices = np.arange(0, 100, 2)  # keep even points only
+    with pytest.warns(UserWarning, match="Masking geometric feature"):
+        masked = pc.mask(indices)
+
+    assert "voxel_features" not in pcfingerprint.PointCloud._POINT_DICTS
+    for name, (values, voxel_coords, rep_indices) in pc.voxel_features.items():
+        m_values, m_coords, m_rep = masked.voxel_features[name]
+        keep = np.isin(
+            rep_indices, indices
+        )  # voxels whose representative point is kept
+        np.testing.assert_array_equal(m_values, values[keep])
+        np.testing.assert_array_equal(m_coords, voxel_coords[keep])
+        # representative indices now refer to positions in the masked point cloud
+        np.testing.assert_array_equal(
+            masked.coords[m_rep], pc.coords[rep_indices[keep]]
+        )
+
+
+def test_collect_all_attributes_includes_all_attribute_groups(
+    pc_pair_with_coords_and_attr_and_feats,
+):
+    pc_pair = pc_pair_with_coords_and_attr_and_feats
+    pc_pair.compute_c2c_distances()
+    pc_pair.compute_statistical_outlier_removal()
+    pc_pair.reference.scor["scor_res0.1_inc1"] = np.zeros(100)
+    attributes = pc_pair._collect_all_attributes(pc_pair.compare)
+    assert attributes[:3] == ["x", "y", "z"]
+    for expected in [
+        "gps_time",
+        "intensity",
+        "classification",
+        "linearity_r0.05",
+        "linearity_v0.5",
+        "c2c_to-reference",
+        "sor_k8_std1.0",
+        "scor_res0.1_inc1",
+    ]:
+        assert expected in attributes
+    assert len(attributes) == len(set(attributes))
+
+
+def test_collect_all_attributes_uses_given_compare_list(
+    pc_pair_with_coords_and_attr_and_feats,
+):
+    """Only the passed compare clouds are considered (the report truncates to five)."""
+    pc_pair = pc_pair_with_coords_and_attr_and_feats
+    pc_pair.compare[0].geometric_features["only_in_compare_r1.0"] = np.zeros(100)
+    assert "only_in_compare_r1.0" in pc_pair._collect_all_attributes(pc_pair.compare)
+    assert "only_in_compare_r1.0" not in pc_pair._collect_all_attributes([])
+
+
+def test_get_attribute_data_scor_and_coordinates(pc_pair_with_coords):
+    pc = pc_pair_with_coords.reference
+    pc.scor["scor_res0.1_inc1"] = np.arange(100.0)
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, "scor_res0.1_inc1"),
+        np.arange(100.0),
+    )
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, "Z"), pc.coords[:, 2]
+    )
+
+
+@pytest.mark.parametrize(
+    "attr",
+    ["gps_time", "return_number", "number_of_returns", "intensity", "classification"],
+)
+def test_drop_attributes_drops_attribute_missing_in_one_cloud(
+    pc_pair_with_coords, attr
+):
+    n = 100
+    for pc in pc_pair_with_coords._all_pcs:
+        setattr(pc, attr, np.zeros(n, dtype=int))
+    pc_pair_with_coords.compare[0].__dict__[attr] = None
+    pc_pair_with_coords.drop_attributes()
+    assert all(getattr(pc, attr) is None for pc in pc_pair_with_coords._all_pcs)
+
+
+@pytest.mark.parametrize(
+    "group,key",
+    [
+        ("geometric_features", "PCA1_r1.0"),
+        ("c2c", "C2C_to-Reference"),
+        ("sor", "SOR_k8_std1.0"),
+        ("scor", "ScOR_res0.1_inc1"),
+    ],
+)
+@pytest.mark.parametrize("query", ["exact", "lower", "upper"])
+def test_get_attribute_data_is_case_insensitive(pc_pair_with_coords, group, key, query):
+    """Keys keep the case of the feature name (e.g. jakteristics' PCA1) and must still be found."""
+    pc = pc_pair_with_coords.reference
+    data = np.arange(100.0)
+    getattr(pc, group)[key] = data
+    name = {"exact": key, "lower": key.lower(), "upper": key.upper()}[query]
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, name), data
+    )
+
+
+def test_get_attribute_data_voxel_feature_case_insensitive(pc_pair_with_coords):
+    pc = pc_pair_with_coords.reference
+    pc.voxel_features["PCA1_v0.5"] = (np.arange(5.0), np.zeros((5, 3)), np.arange(5))
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, "pca1_v0.5"), np.arange(5.0)
+    )
+
+
+def test_get_attribute_data_unknown_raises_with_original_name(pc_pair_with_coords):
+    with pytest.raises(ValueError, match="Isotropy_r1.0"):
+        pcfingerprint.pcfingerprint.get_attribute_data(
+            pc_pair_with_coords.reference, "Isotropy_r1.0"
+        )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "mask",
+        "filter_by_class",
+        "sor",
+        "scor",
+        "geometric_features",
+        "coords",
+        "source",
+    ],
+)
+def test_get_attribute_data_rejects_non_attribute_names(pc_pair_with_coords, name):
+    """Methods and containers of PointCloud must not be returned as attribute data."""
+    with pytest.raises(ValueError, match="not found"):
+        pcfingerprint.pcfingerprint.get_attribute_data(
+            pc_pair_with_coords.reference, name
+        )
+
+
+def test_get_attribute_data_unset_array_raises(pc_pair_with_coords):
+    assert pc_pair_with_coords.reference.intensity is None
+    with pytest.raises(ValueError, match="intensity"):
+        pcfingerprint.pcfingerprint.get_attribute_data(
+            pc_pair_with_coords.reference, "intensity"
+        )
+
+
+def test_get_attribute_data_feature_named_like_method(pc_pair_with_coords):
+    """A feature key equal to a PointCloud method name is found in its dictionary."""
+    pc = pc_pair_with_coords.reference
+    pc.geometric_features["mask"] = np.arange(100.0)
+    np.testing.assert_array_equal(
+        pcfingerprint.pcfingerprint.get_attribute_data(pc, "mask"), np.arange(100.0)
+    )
+
+
+def test_get_attribute_data_point_arrays(pc_pair_with_coords_and_attr):
+    pc = pc_pair_with_coords_and_attr.reference
+    for attr in ("gps_time", "intensity", "classification"):
+        np.testing.assert_array_equal(
+            pcfingerprint.pcfingerprint.get_attribute_data(pc, attr.upper()),
+            getattr(pc, attr),
+        )

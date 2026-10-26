@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any, ClassVar
 
 import jakteristics
 import laspy
@@ -30,11 +31,36 @@ from pcfingerprint.utils import (
 
 logger = logging.getLogger("pcfingerprint")
 
+_LAS_SUFFIXES = (".las", ".laz")
+_XYZ_SUFFIXES = (".txt", ".xyz", ".csv")
+
+VoxelFeature = tuple[np.ndarray, np.ndarray, np.ndarray | None]
+"""Voxel-based feature: (feature values per voxel, voxel coordinates Vx3, index of the representative point per voxel or None)."""
+
 _SCOR_RESOLUTION_OFFSET = 0.0028
 """Offset [deg] added to the doubled scan resolution passed to py4dgeo's ScOR (as in the py4dgeo outlier removal notebook)."""
 
 
 class PointCloud:
+    _COORDINATES: ClassVar[tuple[str, ...]] = ("x", "y", "z")
+    """Names of the coordinate axes, in the column order of ``coords``."""
+    _POINT_ARRAYS: ClassVar[tuple[str, ...]] = (
+        "gps_time",
+        "return_number",
+        "number_of_returns",
+        "intensity",
+        "classification",
+    )
+    """Names of optional per-point arrays that are subset together with ``coords`` when masking."""
+    _POINT_DICTS: ClassVar[tuple[str, ...]] = (
+        "geometric_features",
+        "c2c",
+        "sor",
+        "scor",
+    )
+    """Names of dictionaries holding one per-point array per key that are subset together with ``coords`` when masking.
+    ``voxel_features`` is deliberately not listed: it is indexed by voxel, not by point, and is handled separately."""
+
     def __init__(
         self,
         coords: np.ndarray | None = None,
@@ -43,7 +69,7 @@ class PointCloud:
         number_of_returns: np.ndarray | None = None,
         intensity: np.ndarray | None = None,
         classification: np.ndarray | None = None,
-    ):
+    ) -> None:
         self.coords: np.ndarray | None = coords
         """Nx3 array of point coordinates."""
         self.source: Path | str | None = None
@@ -60,8 +86,8 @@ class PointCloud:
         """Int array of point classification codes."""
         self.geometric_features: dict[str, np.ndarray] = {}
         """Feature name to per-point float array."""
-        self.voxel_features: dict[str, np.ndarray] = {}
-        """Feature name to float array for voxel-based features."""
+        self.voxel_features: dict[str, VoxelFeature] = {}
+        """Feature name to voxel-based feature (values, voxel coordinates, representative point indices)."""
         self.c2c: dict[str, np.ndarray] = {}
         """Cloud-to-cloud distances, keyed by distance name (e.g. ``"c2c_to-reference"``)."""
         self.sor: dict[str, np.ndarray] = {}
@@ -74,35 +100,39 @@ class PointCloud:
         """File name of the source, or ``"unknown source"``; used in log messages."""
         return Path(self.source).name if self.source is not None else "unknown source"
 
-    def shift_z_to_zero(self):
+    def shift_z_to_zero(self) -> None:
         """Shift the z-coordinates so that the minimum z-value is zero."""
         if self.coords is not None:
             self.coords[:, 2] = shift_to_zero(self.coords[:, 2])
         else:
             raise ValueError("PointCloud coordinates are not set.")
 
-    def shift_gpstime_to_zero(self):
+    def shift_gpstime_to_zero(self) -> None:
         """Shift the gps_time so that the minimum gps_time is zero."""
         if self.gps_time is not None:
             self.gps_time = shift_to_zero(self.gps_time)
         else:
             raise ValueError("PointCloud gps_time is not set.")
 
-    def robust_scale_intensity(self):
+    def robust_scale_intensity(self) -> None:
         """Perform robust scaling on intensity values."""
         if self.intensity is not None:
             self.intensity = scale_robust(self.intensity)
         else:
             raise ValueError("PointCloud intensity is not set.")
 
-    def standardize_intensity(self):
+    def standardize_intensity(self) -> None:
         """Standardize intensity values (z-score normalization)."""
         if self.intensity is not None:
             self.intensity = standardize(self.intensity)
         else:
             raise ValueError("PointCloud intensity is not set.")
 
-    def _selection_mask_and_index_map(self, indices):
+    def _selection_mask_and_index_map(
+        self, indices: np.ndarray | Sequence[int]
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if self.coords is None:
+            raise ValueError("PointCloud coordinates are not set.")
         if isinstance(indices, np.ndarray) and indices.dtype == bool:
             if indices.shape[0] != self.coords.shape[0]:
                 raise ValueError("Boolean mask length does not match point cloud size.")
@@ -117,7 +147,11 @@ class PointCloud:
         index_map[selected_indices] = np.arange(selected_indices.shape[0])
         return point_mask, index_map
 
-    def _mask_voxel_feature(self, feat_data, point_mask, index_map):
+    def _mask_voxel_feature(
+        self, feat_data: VoxelFeature, point_mask: np.ndarray, index_map: np.ndarray
+    ) -> VoxelFeature:
+        if self.coords is None:
+            raise ValueError("PointCloud coordinates are not set.")
         if not isinstance(feat_data, tuple) or len(feat_data) < 2:
             return feat_data
 
@@ -136,7 +170,7 @@ class PointCloud:
         filtered_rep_indices = index_map[rep_indices[voxel_mask]]
         return (filtered_values, filtered_coords, filtered_rep_indices)
 
-    def filter_by_class(self, classes: list[int]):
+    def filter_by_class(self, classes: list[int]) -> PointCloud:
         """
         Filter the point cloud to specified classes using the "classification" attribute (if present).
 
@@ -162,7 +196,7 @@ class PointCloud:
                 "PointCloud does not have a 'classification' attribute to filter by."
             )
 
-    def mask(self, indices):
+    def mask(self, indices: np.ndarray | Sequence[int]) -> PointCloud:
         """
         Mask the point cloud using the given indices.
 
@@ -179,32 +213,20 @@ class PointCloud:
             # copy over all other attributes if they exist
             if self.source is not None:
                 new_pc.source = self.source
-            if self.gps_time is not None:
-                new_pc.gps_time = self.gps_time[indices]
-            if self.return_number is not None:
-                new_pc.return_number = self.return_number[indices]
-            if self.number_of_returns is not None:
-                new_pc.number_of_returns = self.number_of_returns[indices]
-            if self.intensity is not None:
-                new_pc.intensity = self.intensity[indices]
-            if self.classification is not None:
-                new_pc.classification = self.classification[indices]
-            # geometric features
-            for feat_name, feat_data in self.geometric_features.items():
+            for attr in self._POINT_ARRAYS:
+                data = getattr(self, attr)
+                if data is not None:
+                    setattr(new_pc, attr, data[indices])
+            for feat_name in self.geometric_features:
                 warnings.warn(
                     f"Masking geometric feature {feat_name}. If using mask to subset points, consider recomputing geometric features",
                     UserWarning,
                 )
-                new_pc.geometric_features[feat_name] = feat_data[indices]
-            # c2c distances
-            for dist_name, dist_data in self.c2c.items():
-                new_pc.c2c[dist_name] = dist_data[indices]
-            # outlier features
-            for feat_name, feat_data in self.sor.items():
-                new_pc.sor[feat_name] = feat_data[indices]
-            for feat_name, feat_data in self.scor.items():
-                new_pc.scor[feat_name] = feat_data[indices]
-            # voxel features
+            for attr in self._POINT_DICTS:
+                masked: dict[str, np.ndarray] = getattr(new_pc, attr)
+                for name, data in getattr(self, attr).items():
+                    masked[name] = data[indices]
+            # voxel features are indexed by voxel, not by point, and need their indices remapped
             for feat_name, feat_data in self.voxel_features.items():
                 new_pc.voxel_features[feat_name] = self._mask_voxel_feature(
                     feat_data, point_mask, index_map
@@ -222,7 +244,7 @@ class PointCloudPair:
         standardize_intensity: bool = False,
         robust_scale_intensity: bool = False,
         class_mapping: dict[int, str] | None = None,
-    ):
+    ) -> None:
         self.reference: PointCloud = PointCloud()
         """Reference PointCloud"""
         self.compare: list[PointCloud] = []
@@ -237,113 +259,92 @@ class PointCloudPair:
         """Whether to perform robust scaling on intensity values of all PointClouds"""
         self.class_mapping: dict[int, str] | None = class_mapping
         """Dictionary to map integer class values to class names"""
+        self._check_intensity_scaling_options()
 
     @property
     def _all_pcs(self) -> list[PointCloud]:
         return [self.reference, *self.compare]
 
+    def _check_intensity_scaling_options(self) -> None:
+        # checked in __init__ and again before loading, as the flags are public attributes
+        if self.robust_scale_intensity and self.standardize_intensity:
+            raise ValueError(
+                "Cannot apply both robust scaling and standardization to intensity."
+            )
+
+    def _preprocess(self, pcs: list[PointCloud]) -> None:
+        """Apply the configured shifting and intensity scaling to the given point clouds."""
+        for pc in pcs:
+            if self.shift_z:
+                pc.shift_z_to_zero()
+            if self.shift_gps_time:
+                pc.shift_gpstime_to_zero()
+            if self.robust_scale_intensity:
+                pc.robust_scale_intensity()
+            if self.standardize_intensity:
+                pc.standardize_intensity()
+
     def _require_loaded(self, action: str) -> None:
-        if self.reference.coords is None or self.compare == []:
+        if self.compare == [] or any(pc.coords is None for pc in self._all_pcs):
             raise ValueError(
                 f"Please load both reference and compare point clouds before {action}."
             )
 
-    def drop_attributes(self):
+    def drop_attributes(self) -> None:
         """
         Drop attributes that are not present in all point clouds in the pair to ensure comparability.
         """
-        all_pcs = [self.reference] + self.compare
-        for attr in [
-            "gps_time",
-            "return_number",
-            "number_of_returns",
-            "intensity",
-        ]:
-            if any(getattr(pc, attr) is None for pc in all_pcs):
+        for attr in PointCloud._POINT_ARRAYS:
+            if any(getattr(pc, attr) is None for pc in self._all_pcs):
                 logger.info(
                     f"Dropping attribute '{attr}' as it is not present in all point clouds."
                 )
-                for pc in all_pcs:
+                for pc in self._all_pcs:
                     setattr(pc, attr, None)
 
-    def load_reference(self, filepath: str | Path):
+    def load_reference(self, filepath: str | Path) -> None:
         """
         Load the reference point cloud from a file. Supported formats are LAS/LAZ and XYZ.
+        The previously loaded reference is only replaced if loading and preprocessing succeed.
 
         :param filepath: File path to load. Supported formats are LAS/LAZ and XYZ.
         :type filepath: str
         """
+        self._check_intensity_scaling_options()
         logger.info(f"Loading reference point cloud from {filepath}...")
-        # read based on file extension
-        if Path(filepath).suffix in [".las", ".laz"]:
-            self.reference = read_las_file(filepath)
-        elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
-            self.reference = read_xyz_file(filepath)
-        else:
-            raise ValueError(
-                f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
-            )
-        self.reference.source = Path(filepath)
-        if self.shift_z:
-            self.reference.shift_z_to_zero()
-        if self.shift_gps_time:
-            self.reference.shift_gpstime_to_zero()
-        if self.robust_scale_intensity and self.standardize_intensity:
-            raise ValueError(
-                "Cannot apply both robust scaling and standardization to intensity."
-            )
-        if self.robust_scale_intensity:
-            self.reference.robust_scale_intensity()
-        if self.standardize_intensity:
-            self.reference.standardize_intensity()
+        reference = _read_point_cloud(filepath)
+        self._preprocess([reference])
+        self.reference = reference
         # if comparison point cloud is already loaded, drop non-overlapping attributes
         if self.compare != []:
             self.drop_attributes()
 
-    def load_compare(self, filepaths: Sequence[str | Path] | str | Path):
+    def load_compare(self, filepaths: Sequence[str | Path] | str | Path) -> None:
         """
         Load comparison point cloud(s) from file(s).
         Users can provide both a single file path (str or Path) and a list of file paths.
+        The comparison point clouds are only added if all files could be loaded and preprocessed;
+        otherwise the pair is left unchanged. Point clouds that were loaded earlier are not preprocessed again.
 
         :param filepaths: File path(s) to load. Can be a single file path or a sequence of file paths (str or Path). Supported formats are LAS/LAZ and XYZ.
         :type filepaths: Sequence[str | Path] | str | Path
         """
+        self._check_intensity_scaling_options()
         if isinstance(filepaths, (str, Path)):
             filepaths = [filepaths]
+        new_pcs: list[PointCloud] = []
         for filepath in filepaths:
             logger.info(f"Loading comparison point cloud from {filepath}...")
-            if Path(filepath).suffix in [".las", ".laz"]:
-                self.compare.append(read_las_file(filepath))
-            elif Path(filepath).suffix in [".txt", ".xyz", ".csv"]:
-                self.compare.append(read_xyz_file(filepath))
-            else:
-                raise ValueError(
-                    f"File format {Path(filepath).suffix} not supported. Please provide a LAS/LAZ or XYZ file."
-                )
-            self.compare[-1].source = Path(filepath)
-        if self.shift_z:
-            for pc in self.compare:
-                pc.shift_z_to_zero()
-        if self.shift_gps_time:
-            for pc in self.compare:
-                pc.shift_gpstime_to_zero()
-        if self.robust_scale_intensity and self.standardize_intensity:
-            raise ValueError(
-                "Cannot apply both robust scaling and standardization to intensity."
-            )
-        if self.standardize_intensity:
-            for pc in self.compare:
-                pc.standardize_intensity()
-        if self.robust_scale_intensity:
-            for pc in self.compare:
-                pc.robust_scale_intensity()
+            new_pcs.append(_read_point_cloud(filepath))
+        self._preprocess(new_pcs)
+        self.compare.extend(new_pcs)
         # if reference world point cloud is already loaded, drop non-overlapping attributes
         if self.reference.coords is not None:
             self.drop_attributes()
 
     def compute_statistical_outlier_removal(
         self, k: int = 8, std_dev_multiplier: float = 1.0
-    ):
+    ) -> None:
         """
         Perform statistical outlier removal (SOR) on the reference and all comparison point clouds.
         Uses py4dgeo.statistical_outlier_removal and adds a boolean array named by the parameters to the sor dictionary of each PointCloud.
@@ -353,19 +354,10 @@ class PointCloudPair:
         :param std_dev_multiplier: Standard deviation multiplier for determining outliers. Default is 1.0.
         :type std_dev_multiplier: float
         """
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before computing statistical outlier removal."
-            )
+        self._require_loaded("computing statistical outlier removal")
         # round std_dev_multiplier to 1 decimal place
         std_dev_multiplier = round(std_dev_multiplier, 1)
-        # create epoch for reference
-        epoch = py4dgeo.Epoch(self.reference.coords)
-        _, inlier_outlier = py4dgeo.statistical_outlier_removal(
-            epoch, k=k, std_dev_multiplier=std_dev_multiplier
-        )
-        self.reference.sor[f"sor_k{k}_std{std_dev_multiplier}"] = inlier_outlier
-        for pc in self.compare:
+        for pc in self._all_pcs:
             epoch = py4dgeo.Epoch(pc.coords)
             _, inlier_outlier = py4dgeo.statistical_outlier_removal(
                 epoch, k=k, std_dev_multiplier=std_dev_multiplier
@@ -383,7 +375,7 @@ class PointCloudPair:
     ) -> None:
         """
         Compute the scan outlier ratio (ScOR) on the reference and all comparison point clouds.
-        Uses py4dgeo.scan_outlier_ratio and stores the resulting per-point ScOR values under the key ``"scor"`` in the scor dictionary of each PointCloud.
+        Uses py4dgeo.scan_outlier_ratio and stores the resulting per-point ScOR values in the scor dictionary of each PointCloud (key format described below).
         Each point cloud is evaluated against its own (optionally last-return) points as neighborhood candidates (standard ScOR, not multitemporal ScOR).
 
         Note that this assumes that each point cloud is a single scan captured from a static position and that the
@@ -453,7 +445,7 @@ class PointCloudPair:
         backend: str = "pgeof",
         chunking: bool = False,
         max_points_per_chunk: int | None = None,
-    ):
+    ) -> None:
         """
         Compute geometric features for all point clouds in the pair
 
@@ -469,12 +461,11 @@ class PointCloudPair:
         :type chunking: bool
         :param max_points_per_chunk: Maximum number of interior points per spatial tile when ``chunking`` is enabled. Tiles are buffered by at least ``radius`` so results match an unchunked computation.
         :type max_points_per_chunk: int | None
+
+        :raises ValueError: If the reference or compare point clouds are not loaded, if ``chunking`` is enabled without ``max_points_per_chunk``, if ``backend`` is not supported, or if any requested feature is available in neither backend. All of this is checked before any feature is computed.
+        :warns UserWarning: If a requested feature is not available in ``backend`` and is computed with the other backend as fallback.
         """
-        # raise error if no point clouds loaded
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before computing geometric features."
-            )
+        self._require_loaded("computing geometric features")
         if chunking and max_points_per_chunk is None:
             raise ValueError(
                 "Please provide max_points_per_chunk when chunking is enabled."
@@ -484,9 +475,23 @@ class PointCloudPair:
         requested_features = list(feature_names)
 
         density_requested = "density" in requested_features
+        density_fns = {
+            "jakteristics": compute_density_jakteristics,
+            "pgeof": compute_density_pgeof,
+        }
+        geom_fns = {
+            "jakteristics": compute_geom_feat_jakteristics,
+            "pgeof": compute_geom_feat_pgeof,
+        }
         feature_names = [f for f in requested_features if f != "density"]
 
-        def _compute(pc, compute_fn, **kwargs):
+        # validate backend and feature names before computing anything
+        primary, fallback = _split_features_by_backend(feature_names, backend)
+        other = "jakteristics" if backend == "pgeof" else "pgeof"
+
+        def _compute(
+            pc: PointCloud, compute_fn: Callable[..., None], **kwargs: Any
+        ) -> None:
             if chunking:
                 run_chunked_computation(
                     pc, compute_fn, max_points_per_chunk, buffer=radius, **kwargs
@@ -495,146 +500,23 @@ class PointCloudPair:
                 compute_fn(pc, **kwargs)
 
         if density_requested:
-            if backend == "jakteristics":
+            for pc in self._all_pcs:
                 with logger_context(
-                    f"Computing density for reference pc using jakteristics. Search radius: {radius}, max_knn: {max_knn}"
+                    f"Computing density for {pc.display_name} using {backend}. Search radius: {radius}, max_knn: {max_knn}"
                 ):
-                    _compute(
-                        self.reference,
-                        compute_density_jakteristics,
-                        radius=radius,
-                        max_knn=max_knn,
-                    )
-                for compare_pc in self.compare:
-                    name = (
-                        Path(compare_pc.source).name
-                        if compare_pc.source is not None
-                        else "unknown source"
-                    )
-                    with logger_context(
-                        f"Computing density for {name} using jakteristics. Search radius: {radius}, max_knn: {max_knn}"
-                    ):
-                        _compute(
-                            compare_pc,
-                            compute_density_jakteristics,
-                            radius=radius,
-                            max_knn=max_knn,
-                        )
-            elif backend == "pgeof":
-                with logger_context(
-                    f"Computing density for reference pc using pgeof. Search radius: {radius}, max_knn: {max_knn}"
-                ):
-                    _compute(
-                        self.reference,
-                        compute_density_pgeof,
-                        radius=radius,
-                        max_knn=max_knn,
-                    )
-                for compare_pc in self.compare:
-                    name = (
-                        Path(compare_pc.source).name
-                        if compare_pc.source is not None
-                        else "unknown source"
-                    )
-                    with logger_context(
-                        f"Computing density for {name} using pgeof. Search radius: {radius}, max_knn: {max_knn}"
-                    ):
-                        _compute(
-                            compare_pc,
-                            compute_density_pgeof,
-                            radius=radius,
-                            max_knn=max_knn,
-                        )
-            else:
-                raise ValueError(f"Backend {backend} not supported.")
+                    _compute(pc, density_fns[backend], radius=radius, max_knn=max_knn)
 
-        if feature_names == []:
-            return  # all requested features already computed
-
-        # check if all feature names available for the backend, if not, try fallback on other backend before raising error
-        if backend == "pgeof":
-            pgeof_features_lower = [f.lower() for f in EFeatureID._member_names_]
-            pgeof_features = [f for f in feature_names if f in pgeof_features_lower]
-            jakteristics_features = [
-                f
-                for f in feature_names
-                if (
-                    f in jakteristics.constants.FEATURE_NAMES
-                    and f not in pgeof_features
-                )
-            ]
-            if jakteristics_features != []:
-                warnings.warn(
-                    f"Features {jakteristics_features} not available in pgeof. Computing them using jakteristics as fallback.",
-                    UserWarning,
-                )
-        elif backend == "jakteristics":
-            jakteristics_features = [
-                f for f in feature_names if f in jakteristics.constants.FEATURE_NAMES
-            ]
-            pgeof_features = [
-                f
-                for f in feature_names
-                if (f in EFeatureID._member_names_ and f not in jakteristics_features)
-            ]
-            if pgeof_features != []:
-                warnings.warn(
-                    f"Features {pgeof_features} not available in jakteristics. Computing them using pgeof as fallback.",
-                    UserWarning,
-                )
-        else:
-            raise ValueError(f"Backend {backend} not supported.")
-        if len(jakteristics_features) > 0:
-            with logger_context(
-                f"Computing geometric features for reference pc using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
-            ):
-                _compute(
-                    self.reference,
-                    compute_geom_feat_jakteristics,
-                    feature_names=jakteristics_features,
-                    radius=radius,
-                    max_knn=max_knn,
-                )
-            for compare_pc in self.compare:
-                name = (
-                    Path(compare_pc.source).name
-                    if compare_pc.source is not None
-                    else "unknown source"
-                )
+        for name, feats in ((backend, primary), (other, fallback)):
+            if not feats:
+                continue
+            for pc in self._all_pcs:
                 with logger_context(
-                    f"Computing geometric features for {name} using jakteristics. {jakteristics_features}, search radius: {radius}, max_knn: {max_knn}"
+                    f"Computing geometric features for {pc.display_name} using {name}. {feats}, search radius: {radius}, max_knn: {max_knn}"
                 ):
                     _compute(
-                        compare_pc,
-                        compute_geom_feat_jakteristics,
-                        feature_names=jakteristics_features,
-                        radius=radius,
-                        max_knn=max_knn,
-                    )
-        if len(pgeof_features) > 0:
-            with logger_context(
-                f"Computing geometric features for reference pc using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
-            ):
-                _compute(
-                    self.reference,
-                    compute_geom_feat_pgeof,
-                    feature_names=pgeof_features,
-                    radius=radius,
-                    max_knn=max_knn,
-                )
-            for compare_pc in self.compare:
-                name = (
-                    Path(compare_pc.source).name
-                    if compare_pc.source is not None
-                    else "unknown source"
-                )
-                with logger_context(
-                    f"Computing geometric features for {name} using pgeof. {pgeof_features}, search radius: {radius}, max_knn: {max_knn}"
-                ):
-                    _compute(
-                        compare_pc,
-                        compute_geom_feat_pgeof,
-                        feature_names=pgeof_features,
+                        pc,
+                        geom_fns[name],
+                        feature_names=feats,
                         radius=radius,
                         max_knn=max_knn,
                     )
@@ -642,34 +524,29 @@ class PointCloudPair:
     def compute_voxel_features(
         self,
         voxel_size: float,
-        voxel_origin=None,
+        voxel_origin: list[float] | None = None,
         feature_names: list[str] | None = None,
-    ):
+    ) -> tuple[py4dgeo.Vapc, list[py4dgeo.Vapc]]:
         """
         Compute voxel-based geometric features for all point clouds in the pair using VAPC.
 
         :param voxel_size: Voxel edge length used for voxel-based feature computation.
         :type voxel_size: float
         :param voxel_origin: Optional voxel grid origin passed to the VAPC backend. If None, [0.0, 0.0, 0.0] is used.
-        :type voxel_origin: array-like, optional
+        :type voxel_origin: list[float] | None
         :param feature_names: List of VAPC features to compute. Supported features (py4dgeo v1.1) are "count", "density", "covariance", "eigenvalues", "linearity", "planarity", "sphericity", "sum_of_eigenvalues","omnivariance", "eigenentropy", "anisotropy", "surface_variation". If empty, all available features will be computed.
         :type feature_names: list[str] | None
 
         :return: Tuple containing (VAPC for reference point cloud, list of VAPCs for compare point clouds)
         :rtype: tuple[py4dgeo.Vapc, list[py4dgeo.Vapc]]
         """
-        # raise error if no point clouds loaded
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before computing voxel features."
-            )
+        self._require_loaded("computing voxel features")
         if feature_names is None:
             feature_names = []
-        vapc_list = []
-        for pc in [self.reference] + self.compare:
-            name = Path(pc.source).name if pc.source is not None else "unknown source"
+        vapc_list: list[py4dgeo.Vapc] = []
+        for pc in self._all_pcs:
             with logger_context(
-                f"Computing voxel features for {name} using VAPC. {feature_names}, voxel size: {voxel_size}"
+                f"Computing voxel features for {pc.display_name} using VAPC. {feature_names}, voxel size: {voxel_size}"
             ):
                 vapc = compute_geom_feat_vapc(
                     pc, voxel_size, voxel_origin, feature_names
@@ -681,7 +558,7 @@ class PointCloudPair:
             vapc_list[1:],
         )  # return reference VAPC and list of compare VAPCs
 
-    def compute_c2c_distances(self, max_distance: float = np.inf):
+    def compute_c2c_distances(self, max_distance: float = np.inf) -> None:
         """
         Compute cloud-to-cloud distances between the reference and each comparison point cloud (both directions).
         The distances are stored in
@@ -691,7 +568,7 @@ class PointCloudPair:
         :param max_distance: Optional maximum distance threshold. Distances greater than this value will be set to NaN. Default: np.inf, i.e., no threshold is applied.
         :type max_distance: float, optional
         """
-
+        self._require_loaded("computing C2C distances")
         # create epochs for the point clouds
         reference_epoch = py4dgeo.Epoch(cloud=self.reference.coords)
 
@@ -708,7 +585,7 @@ class PointCloudPair:
             )
             compare_pc.c2c["c2c_to-reference"] = c2c_rev.run()
 
-    def filter_by_class(self, classes: list[int]):
+    def filter_by_class(self, classes: list[int]) -> PointCloudPair:
         """
         Filter the point clouds in the PointCloudPair to specified classes using the "classification" attribute (if present).
 
@@ -718,11 +595,7 @@ class PointCloudPair:
         :return: A new PointCloudPair object containing only points of the specified classes.
         :rtype: PointCloudPair
         """
-        # raise error if no point clouds loaded
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before filtering by class."
-            )
+        self._require_loaded("filtering by class")
         if self.reference.classification is None or any(
             compare_pc.classification is None for compare_pc in self.compare
         ):
@@ -743,7 +616,7 @@ class PointCloudPair:
 
         return new_pair
 
-    def _collect_all_attributes(self, compare) -> list[str]:
+    def _collect_all_attributes(self, compare: list[PointCloud]) -> list[str]:
         """
         Collect all available attributes from the reference and compare point clouds to use
         for report generation. Returns a deterministic, deduplicated list of attribute names.
@@ -755,36 +628,29 @@ class PointCloudPair:
         """
         attributes: list[str] = []
 
-        def add_unique(name: str):
+        def add_unique(name: str) -> None:
             if name not in attributes:
                 attributes.append(name)
 
-        # start with coordinates)
-        for coord in ("x", "y", "z"):
+        # start with coordinates
+        for coord in PointCloud._COORDINATES:
             add_unique(coord)
 
-        standard_attributes = [
-            "gps_time",
-            "return_number",
-            "number_of_returns",
-            "intensity",
-            "classification",
-        ]
-        for pc in [self.reference] + compare:
-            for attr in standard_attributes:
-                if getattr(pc, attr, None) is not None:
+        # use the (possibly truncated) compare list, not all point clouds of the pair
+        for pc in [self.reference, *compare]:
+            for attr in PointCloud._POINT_ARRAYS:
+                if getattr(pc, attr) is not None:
                     add_unique(attr)
             # sort feature keys to ensure consistent ordering across runs
-            for attr in sorted(pc.geometric_features.keys()):
-                add_unique(attr)
-            for attr in sorted(pc.voxel_features.keys()):
-                add_unique(attr)
-            for attr in sorted(pc.c2c.keys()):
-                add_unique(attr)
+            for dict_attr in (*PointCloud._POINT_DICTS, "voxel_features"):
+                for name in sorted(getattr(pc, dict_attr)):
+                    add_unique(name)
 
         return attributes
 
-    def _expand_attribute_names(self, compare, attribute_list: list[str]) -> list[str]:
+    def _expand_attribute_names(
+        self, compare: list[PointCloud], attribute_list: list[str]
+    ) -> list[str]:
         """
         Expand attribute names to match available features. For each attribute in the list:
         - If an exact match exists in geometric_features or standard attributes, keep it as-is
@@ -850,15 +716,39 @@ class PointCloudPair:
         visualizations: list[str] | None = None,
         vis_backend: str = "matplotlib",
         preview: bool = True,
-    ):
+    ) -> None:
+        """
+        Generate an HTML report comparing the reference and the comparison point clouds.
+        If more than five comparison point clouds are loaded, only the first five are included.
+
+        :param output_folder: Folder to write the report to. It is created if it does not exist.
+        :type output_folder: str | Path
+        :param attribute_list: Point attributes (e.g. "intensity", "z") and geometric/voxel feature names to include. Names without a suffix are expanded to all matching features, e.g. "linearity" to "linearity_r0.1", "linearity_r0.2". If None, all available attributes except the x and y coordinates are used.
+        :type attribute_list: list[str] | None
+        :param distance_list: Distance attributes to include, e.g. "c2c" (expanded like ``attribute_list``). Default is None.
+        :type distance_list: list[str] | None
+        :param summary_statistics: Whether to include summary statistics tables. Default is True.
+        :type summary_statistics: bool
+        :param class_distribution: Whether to include class distribution metrics. Requires the classification attribute. Default is False.
+        :type class_distribution: bool
+        :param outlier_statistics: Whether to include outlier statistics. Requires that statistical outlier removal was computed for all point clouds, see :meth:`compute_statistical_outlier_removal`. Default is False.
+        :type outlier_statistics: bool
+        :param return_number_metrics: Whether to include return-number metrics. Default is False.
+        :type return_number_metrics: bool
+        :param visualizations: Visualization types to include: "histogram", "histogram_overlay", "histogram_per_class", "3d_scatter" and "3d_scatter_distances". If None, ["histogram_overlay"] is used.
+        :type visualizations: list[str] | None
+        :param vis_backend: Visualization backend, "matplotlib" or "plotly". Default is "matplotlib".
+        :type vis_backend: str
+        :param preview: Whether to start a local web server and open the report in a browser. Default is True.
+        :type preview: bool
+
+        :raises ValueError: If the reference or compare point clouds are not loaded.
+        :raises NotImplementedError: If an unsupported visualization backend is requested.
+        """
         if visualizations is None:
             visualizations = ["histogram_overlay"]
 
-        # raise error if no point clouds loaded
-        if self.reference.coords is None or self.compare == []:
-            raise ValueError(
-                "Please load both reference and compare point clouds before generating report."
-            )
+        self._require_loaded("generating report")
 
         # generate html report with histograms for each attribute in attribute_list
         if len(self.compare) > 5:
@@ -936,6 +826,35 @@ class PointCloudPair:
             write_las(compare_pc, output_folder / output_name(compare_pc))
 
 
+def _split_features_by_backend(
+    feature_names: list[str], backend: str
+) -> tuple[list[str], list[str]]:
+    """Return (primary, fallback) features for ``backend``.
+
+    ``primary`` is available in ``backend``; ``fallback`` is only available in the other one.
+    Raises ValueError for an unsupported backend or for features available in neither.
+    """
+    available = {
+        "pgeof": {f.lower() for f in EFeatureID._member_names_},
+        "jakteristics": set(jakteristics.constants.FEATURE_NAMES),
+    }
+    if backend not in available:
+        raise ValueError(f"Backend {backend} not supported.")
+    other = "jakteristics" if backend == "pgeof" else "pgeof"
+
+    primary = [f for f in feature_names if f in available[backend]]
+    fallback = [f for f in feature_names if f not in primary and f in available[other]]
+    unknown = [f for f in feature_names if f not in primary and f not in fallback]
+    if unknown:
+        raise ValueError(f"Features {unknown} not available in pgeof or jakteristics.")
+    if fallback:
+        warnings.warn(
+            f"Features {fallback} not available in {backend}. Computing them using {other} as fallback.",
+            UserWarning,
+        )
+    return primary, fallback
+
+
 def _scor_for_cloud(
     pc: PointCloud,
     scan_position: Sequence[float] | np.ndarray,
@@ -986,7 +905,9 @@ def _scor_for_cloud(
 
 
 def write_voxelized_point_clouds(
-    vapc, filebase: str | Path, reduce_to_feature="closest_to_centroids"
+    vapc: py4dgeo.Vapc,
+    filebase: str | Path,
+    reduce_to_feature: str = "closest_to_centroids",
 ) -> None:
     """
     Write voxelized point cloud (with voxel-based features) to disk as a LAS file
@@ -1007,7 +928,33 @@ def write_voxelized_point_clouds(
     vapc.save_as_las(outpath)
 
 
-def read_las_file(filepath):
+def _read_point_cloud(filepath: str | Path) -> PointCloud:
+    """
+    Read a point cloud from a LAS/LAZ or XYZ file, chosen by the (case-insensitive) file extension.
+
+    :param filepath: File to read.
+    :type filepath: str | Path
+
+    :return: The point cloud, with ``source`` set to ``filepath``.
+    :rtype: PointCloud
+
+    :raises ValueError: If the file extension is not supported.
+    """
+    path = Path(filepath)
+    suffix = path.suffix.lower()
+    if suffix in _LAS_SUFFIXES:
+        pc = read_las_file(path)
+    elif suffix in _XYZ_SUFFIXES:
+        pc = read_xyz_file(path)
+    else:
+        raise ValueError(
+            f"File format {path.suffix} not supported. Please provide a LAS/LAZ or XYZ file."
+        )
+    pc.source = path
+    return pc
+
+
+def read_las_file(filepath: str | Path) -> PointCloud:
     """Create a PointCloud from a LAS/LAZ file
 
     :param filepath:
@@ -1053,7 +1000,7 @@ def read_las_file(filepath):
     return pc
 
 
-def read_xyz_file(filepath):
+def read_xyz_file(filepath: str | Path) -> PointCloud:
     """Create a PointCloud from a XYZ file
 
     :param filepath:
@@ -1065,7 +1012,7 @@ def read_xyz_file(filepath):
     :rtype: PointCloud
     """
     # find delimiter by checking the first line for common delimiters
-    delimiter = None
+    delimiter: str | None = None
     with open(filepath) as f:
         first_line = f.readline()
         for d in [",", "\t", " ", ";"]:
@@ -1119,11 +1066,11 @@ def read_xyz_file(filepath):
 def write_las(
     pc: PointCloud,
     outfile: str | Path,
-    las_point_format=7,
-    las_version="1.4",
-    las_scales=None,
-    las_offset=None,
-):
+    las_point_format: int = 7,
+    las_version: str = "1.4",
+    las_scales: Sequence[float] | np.ndarray | None = None,
+    las_offset: Sequence[float] | np.ndarray | None = None,
+) -> None:
     """
     Function to write a PointCloud object to a LAS/LAZ file with additional attributes.
     Modified after vapc: https://github.com/3dgeo-heidelberg/vapc/blob/main/src/vapc/datahandler.py#L97-L187
@@ -1177,7 +1124,7 @@ def write_las(
     las.write(outfile)
 
 
-def add_dimension_to_laz(las_file, array, name):
+def add_dimension_to_laz(las_file: laspy.LasData, array: np.ndarray, name: str) -> None:
     """
     Adds a new attribute dimension to the LAZ file.
 
@@ -1197,49 +1144,55 @@ def add_dimension_to_laz(las_file, array, name):
     las_file[name] = array
 
 
-def get_attribute_data(pc: PointCloud, attribute: str):
+def _lookup_case_insensitive(mapping: dict[str, Any], name: str) -> Any:
+    """Return the value of the key matching ``name`` ignoring case, or ``None`` if there is none."""
+    for key, value in mapping.items():
+        if key.lower() == name:
+            return value
+    return None
+
+
+def get_attribute_data(pc: PointCloud, attribute: str) -> np.ndarray:
     """
     Function to get the data for a given attribute from a PointCloud.
-    The attribute may be
-    - a direct attribute of the PointCloud object,
+    The attribute name is matched case-insensitively and may be
+    - a per-point array of the PointCloud object (e.g. "intensity", see ``PointCloud._POINT_ARRAYS``),
     - one of the coordinate axes ("x", "y", "z"),
-    - a geometric feature (e.g. "linearity_0.2")
-    - a voxel feature (e.g. "density_0.5")
-    - an outlier flag
+    - a geometric feature (e.g. "linearity_r0.2"),
+    - a voxel feature (e.g. "density_v0.5"),
+    - a cloud-to-cloud distance (e.g. "c2c_to-reference"),
+    - an outlier flag or a scan outlier ratio.
 
     :param pc: PointCloud object
     :type pc: PointCloud
-    :param attribute: Name of the attribute to retreive
+    :param attribute: Name of the attribute to retrieve
     :type attribute: str
+
+    :raises ValueError: If the attribute is not found, or is a per-point array that is not set.
     """
-    # make attribute lower case
-    attribute = attribute.lower()
+    name = attribute.lower()
 
-    # search for attribute in all possible locations
-    if hasattr(pc, attribute):
-        return getattr(pc, attribute)
+    # only known data attributes are exposed, not arbitrary members of PointCloud (methods, dictionaries, ...)
+    if name in PointCloud._POINT_ARRAYS:
+        data = getattr(pc, name)
+        if data is None:
+            raise ValueError(f"Attribute {attribute} is not set in this point cloud.")
+        return data
 
-    if attribute in ["x", "y", "z"]:
+    if name in PointCloud._COORDINATES:
         if pc.coords is None:
             raise ValueError("PointCloud coordinates are not set.")
-        coord_index = {"x": 0, "y": 1, "z": 2}[attribute]
-        return pc.coords[:, coord_index]
+        return pc.coords[:, PointCloud._COORDINATES.index(name)]
 
-    # Exact-match lookup for geometric features
-    if attribute in pc.geometric_features:
-        return pc.geometric_features[attribute]
+    # per-point feature dictionaries (keys keep the case of the feature name, e.g. "PCA1_r1.0")
+    for dict_attr in PointCloud._POINT_DICTS:
+        data = _lookup_case_insensitive(getattr(pc, dict_attr), name)
+        if data is not None:
+            return data
 
-    # Exact-match lookup for voxel features; return values array if tuple
-    if attribute in pc.voxel_features:
-        feat = pc.voxel_features[attribute]
+    # voxel features are indexed by voxel; return the values array if stored as a tuple
+    feat = _lookup_case_insensitive(pc.voxel_features, name)
+    if feat is not None:
         return feat[0] if isinstance(feat, tuple) and len(feat) > 0 else feat
-
-    # Exact-match lookup for c2c distances
-    if attribute in pc.c2c:
-        return pc.c2c[attribute]
-
-    # Exact-match lookup for outlier flags
-    if attribute in pc.sor:
-        return pc.sor[attribute]
 
     raise ValueError(f"Attribute {attribute} not found in point clouds.")
