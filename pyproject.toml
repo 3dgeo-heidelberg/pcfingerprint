@@ -10,7 +10,7 @@ readme = "README.md"
 maintainers = [
     { name = "Hannah Weiser", email = "h.weiser@uni-heidelberg.de" },
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -30,7 +30,7 @@ dependencies = [
     "jinja2",
     "numerous-html-report-generator",
     "pgeof",
-    "py4dgeo"
+    "py4dgeo >= 1.2.1"
 ]
 
 [project.optional-dependencies]
