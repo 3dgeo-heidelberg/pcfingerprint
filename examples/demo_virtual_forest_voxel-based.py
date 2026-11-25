@@ -52,12 +52,12 @@ pc_pair.generate_report(
 pc_outfolder.mkdir(exist_ok=True, parents=True)
 write_voxelized_point_clouds(
     vapc_reference,
-    pc_outfolder / f"{pc_pair.reference.source.name}",
+    pc_outfolder / f"{pc_pair.reference.display_name}",
     reduce_to_feature="closest_to_centroids",
 )
 for ivapc, vapc in enumerate(vapc_compare):
     write_voxelized_point_clouds(
         vapc,
-        pc_outfolder / f"{pc_pair.compare[ivapc].source.name}",
+        pc_outfolder / f"{pc_pair.compare[ivapc].display_name}",
         reduce_to_feature="closest_to_centroids",
     )
