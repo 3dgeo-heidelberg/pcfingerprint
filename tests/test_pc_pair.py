@@ -617,6 +617,8 @@ def test_load_point_clouds_uppercase_extension(pc_xyz_with_header, tmp_path, suf
     assert pc_pair.reference.coords.shape == (3, 3)
     assert pc_pair.compare[0].coords.shape == (3, 3)
     assert pc_pair.reference.source == upper_path
+
+
 SCAN_RESOLUTION = 0.1  # [deg]
 SCAN_POSITION = (0.0, 0.0, 0.0)
 N_ANGLES = 40
@@ -802,45 +804,47 @@ def test_both_intensity_scalings_raise_on_init():
         )
 
 
-def test_both_intensity_scalings_raise_before_loading(pc_xyz):
+def test_both_intensity_scalings_raise_before_loading(pc_xyz_without_header):
     pc_pair = pcfingerprint.PointCloudPair()
     pc_pair.standardize_intensity = True
     pc_pair.robust_scale_intensity = True
     with pytest.raises(ValueError, match="Cannot apply both"):
-        pc_pair.load_compare(pc_xyz)
+        pc_pair.load_compare(pc_xyz_without_header)
     assert pc_pair.compare == []
     with pytest.raises(ValueError, match="Cannot apply both"):
-        pc_pair.load_reference(pc_xyz)
+        pc_pair.load_reference(pc_xyz_without_header)
     assert pc_pair.reference.coords is None
 
 
-def test_load_compare_failure_leaves_pair_unchanged(pc_xyz, tmp_path):
+def test_load_compare_failure_leaves_pair_unchanged(pc_xyz_without_header, tmp_path):
     bad = tmp_path / "points.unsupported"
     bad.write_text("")
     pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_compare(pc_xyz)
+    pc_pair.load_compare(pc_xyz_without_header)
     with pytest.raises(ValueError, match="not supported"):
-        pc_pair.load_compare([pc_xyz, bad])
+        pc_pair.load_compare([pc_xyz_without_header, bad])
     assert len(pc_pair.compare) == 1
 
 
-def test_load_reference_failure_keeps_previous_reference(pc_xyz, tmp_path):
+def test_load_reference_failure_keeps_previous_reference(
+    pc_xyz_without_header, tmp_path
+):
     bad = tmp_path / "points.unsupported"
     bad.write_text("")
     pc_pair = pcfingerprint.PointCloudPair()
-    pc_pair.load_reference(pc_xyz)
+    pc_pair.load_reference(pc_xyz_without_header)
     previous = pc_pair.reference
     with pytest.raises(ValueError, match="not supported"):
         pc_pair.load_reference(bad)
     assert pc_pair.reference is previous
 
 
-def test_load_compare_preprocesses_only_new_clouds(pc_xyz):
+def test_load_compare_preprocesses_only_new_clouds(pc_xyz_without_header):
     pc_pair = pcfingerprint.PointCloudPair(shift_z=True)
-    pc_pair.load_compare(pc_xyz)
+    pc_pair.load_compare(pc_xyz_without_header)
     first = pc_pair.compare[0]
     first.coords[:, 2] += 5.0  # would be shifted back to 0 if preprocessed again
-    pc_pair.load_compare(pc_xyz)
+    pc_pair.load_compare(pc_xyz_without_header)
     assert first.coords[:, 2].min() == pytest.approx(5.0)
     assert pc_pair.compare[1].coords[:, 2].min() == pytest.approx(0.0)
 
