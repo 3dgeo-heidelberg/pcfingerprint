@@ -85,8 +85,8 @@ def pc_pair_uls_voxels_multiple():
 
 
 @pytest.fixture()
-def pc_xyz(tmp_path):
-    xyz_path = tmp_path / "test_point_cloud.csv"
+def pc_xyz_with_header(tmp_path):
+    xyz_path = tmp_path / "test_point_cloud_with_header.csv"
     # Create a simple point cloud with known coordinates and attributes
     import pandas as pd
 
@@ -98,7 +98,25 @@ def pc_xyz(tmp_path):
             "intensity": [100, 150, 200],
         }
     )
-    df.to_csv(xyz_path, index=False)
+    df.to_csv(xyz_path, index=False, header=True)
+    return xyz_path
+
+
+@pytest.fixture()
+def pc_xyz_without_header(tmp_path):
+    xyz_path = tmp_path / "test_point_cloud_without_header.csv"
+    # Same point cloud as in pc_xyz_with_header, but without the header line
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 1.0, 2.0],
+            "z": [0.0, 1.0, 2.0],
+            "intensity": [100, 150, 200],
+        }
+    )
+    df.to_csv(xyz_path, index=False, header=False)
     return xyz_path
 
 
